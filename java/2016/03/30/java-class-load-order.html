@@ -221,7 +221,51 @@ super static member + k = 0</p>
 1. 子类初始化前要进行父类的初始化<br />
 2. 子类实例初始化前要进行父类实例的初始化</p>
 
+<p>关于类的初始化，有一个比较好的用法是单例：</p>
+
+<div class="highlight"><pre><code class="java"><span class="lineno">1</span> <span class="kd">class</span> <span class="nc">Singleton</span><span class="o">{</span>
+<span class="lineno">2</span>     <span class="kd">private</span> <span class="kd">static</span> <span class="kd">class</span> <span class="nc">Holder</span><span class="o">{</span>
+<span class="lineno">3</span>         <span class="kd">private</span> <span class="kd">final</span> <span class="kd">static</span>  <span class="n">Singleton</span> <span class="n">INSTANCE</span><span class="o">=</span><span class="k">new</span> <span class="n">Singleton</span><span class="o">();</span>
+<span class="lineno">4</span>     <span class="o">}</span>   
+<span class="lineno">5</span>     <span class="kd">private</span> <span class="nf">Singleton</span><span class="o">(){}</span>
+<span class="lineno">6</span>     <span class="kd">public</span> <span class="kd">static</span> <span class="n">Singleton</span> <span class="nf">getInstance</span><span class="o">(){</span>
+<span class="lineno">7</span>         <span class="k">return</span> <span class="n">Holder</span><span class="o">.</span><span class="na">INSTANCE</span><span class="o">;</span>
+<span class="lineno">8</span>     <span class="o">}</span>
+<span class="lineno">9</span> <span class="o">}</span></code></pre></div>
+
+<p>这样既能保证唯一的初始化，又可以不使用synchronized以提升效率</p>
+
 <p>第一篇文章就先到这里，平时不擅长码字，可能有一些东西说不清楚，我相信越写越多以后肯定会有改善的</p>
+
+<hr />
+<p>## <em>One more thing</em>
+what about final?</p>
+
+<div class="highlight"><pre><code class="java"><span class="lineno"> 1</span> <span class="kd">static</span> <span class="o">{</span>
+<span class="lineno"> 2</span>         <span class="n">System</span><span class="o">.</span><span class="na">out</span><span class="o">.</span><span class="na">println</span><span class="o">(</span><span class="s">&quot;super static area&quot;</span><span class="o">);</span>
+<span class="lineno"> 3</span>         <span class="n">cal</span><span class="o">();</span>
+<span class="lineno"> 4</span>     <span class="o">}</span>
+<span class="lineno"> 5</span> 
+<span class="lineno"> 6</span>     <span class="kd">public</span> <span class="kd">final</span> <span class="kd">static</span> <span class="n">String</span> <span class="n">k</span> <span class="o">=</span> <span class="k">new</span> <span class="n">String</span><span class="o">(</span><span class="s">&quot;hehe&quot;</span><span class="o">);</span>
+<span class="lineno"> 7</span>     <span class="kd">public</span> <span class="kd">final</span> <span class="kd">static</span> <span class="n">String</span> <span class="n">kk</span> <span class="o">=</span> <span class="s">&quot;hehe&quot;</span><span class="o">;</span>
+<span class="lineno"> 8</span> 
+<span class="lineno"> 9</span>     <span class="kd">public</span> <span class="kd">static</span> <span class="kt">void</span> <span class="nf">cal</span><span class="o">()</span> <span class="o">{</span>
+<span class="lineno">10</span>         <span class="n">System</span><span class="o">.</span><span class="na">out</span><span class="o">.</span><span class="na">println</span><span class="o">(</span><span class="s">&quot;k = &quot;</span><span class="o">+</span><span class="n">k</span><span class="o">);</span>
+<span class="lineno">11</span>         <span class="n">System</span><span class="o">.</span><span class="na">out</span><span class="o">.</span><span class="na">println</span><span class="o">(</span><span class="s">&quot;kk = &quot;</span><span class="o">+</span><span class="n">kk</span><span class="o">);</span>
+<span class="lineno">12</span> 
+<span class="lineno">13</span>     <span class="o">}</span>
+<span class="lineno">14</span> 
+<span class="lineno">15</span>     <span class="kd">public</span> <span class="kd">static</span> <span class="kt">void</span> <span class="nf">main</span><span class="o">(</span><span class="n">String</span><span class="o">[]</span> <span class="n">args</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno">16</span>     <span class="o">}</span></code></pre></div>
+
+<p>super static area<br />
+k = null<br />
+kk = hehe</p>
+
+<p>可以看到，当我们使用字面量的时候， 在编译器就会放入常量池中， 而new操作永远是在运行时才会做的， 如果想要把新new出来的String放入常量池， 可以考虑使用intern()方法</p>
+
+<p>最后当调用某个类用final static修饰的字面量时，注意是字面量，不是new出来的，是不需要加载这个类的，因为它在编译器就已经放入常量池了</p>
+
 
   </article>
 

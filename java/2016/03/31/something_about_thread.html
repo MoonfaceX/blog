@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>java线程简述</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="You'll never walk alone.">
+    <link rel="canonical" href="http://moonfacex.github.io/moonface.github.io/java/2016/03/31/something_about_thread.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="http://moonfacex.github.io/moonface.github.io/css/main.css">
+
+</head>
+
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="http://moonfacex.github.io/moonface.github.io">Moonface Space</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+        
+          <a class="page-link" href="http://moonfacex.github.io/moonface.github.io/about/">About</a>
+        
+          <a class="page-link" href="http://moonfacex.github.io/moonface.github.io/feed.xml"></a>
+        
+          <a class="page-link" href="http://moonfacex.github.io/moonface.github.io/index.html"></a>
+        
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>java线程简述</h1>
+    <p class="meta">Mar 31, 2016</p>
+  </header>
+
+  <article class="post-content">
+  <p>ok，什么是线程？ java线程是执行程序的最小单位，jvm内存模型中，为每个java线程维护程序计数器，通过pc取字节码进行解析、操作<br />
+众所周知， 线程搞来搞去就那么几种方法：start()、stop()、interrupt()、interrupted()、isInterrrupted()、yield()、sleep()、join()， 下面就来逐个看一下它们到底是什么</p>
+
+<h2 id="threadstate"><em>Thread.State</em></h2>
+<p>首先的首先，先来看一下jvm线程的几种状态：</p>
+
+<div class="highlight"><pre><code class="java"><span class="lineno"> 1</span> <span class="kd">public</span> <span class="kd">enum</span> <span class="n">State</span> <span class="o">{</span>
+<span class="lineno"> 2</span>         <span class="cm">/**</span>
+<span class="lineno"> 3</span> <span class="cm">         * 线程未启动状态</span>
+<span class="lineno"> 4</span> <span class="cm">         */</span>
+<span class="lineno"> 5</span>         <span class="n">NEW</span><span class="o">,</span>
+<span class="lineno"> 6</span> 
+<span class="lineno"> 7</span>         <span class="cm">/**</span>
+<span class="lineno"> 8</span> <span class="cm">         * 在执行状态，但不排除等待其他操作系统资源的情况</span>
+<span class="lineno"> 9</span> <span class="cm">         */</span>
+<span class="lineno">10</span>         <span class="n">RUNNABLE</span><span class="o">,</span>
+<span class="lineno">11</span> 
+<span class="lineno">12</span>         <span class="cm">/**</span>
+<span class="lineno">13</span> <span class="cm">         * 等待监视器锁的状态</span>
+<span class="lineno">14</span> <span class="cm">         */</span>
+<span class="lineno">15</span>         <span class="n">BLOCKED</span><span class="o">,</span>
+<span class="lineno">16</span> 
+<span class="lineno">17</span>         <span class="cm">/**</span>
+<span class="lineno">18</span> <span class="cm">         * 等待状态， 会由object.wait(), join(), LockSupport.park()引起</span>
+<span class="lineno">19</span> <span class="cm">         */</span>
+<span class="lineno">20</span>         <span class="n">WAITING</span><span class="o">,</span>
+<span class="lineno">21</span> 
+<span class="lineno">22</span>         <span class="cm">/**</span>
+<span class="lineno">23</span> <span class="cm">         * 有超时限制的等待状态，相比于WAITING，多了一个等待的时间</span>
+<span class="lineno">24</span> <span class="cm">         */</span>
+<span class="lineno">25</span>         <span class="n">TIMED_WAITING</span><span class="o">,</span>
+<span class="lineno">26</span> 
+<span class="lineno">27</span>         <span class="cm">/**</span>
+<span class="lineno">28</span> <span class="cm">         * 结束状态</span>
+<span class="lineno">29</span> <span class="cm">         */</span>
+<span class="lineno">30</span>         <span class="n">TERMINATED</span><span class="o">;</span>
+<span class="lineno">31</span> <span class="o">}</span></code></pre></div>
+
+<p>乍一看BLOCKED和WAITING好像差不多， 去gg了一下， 调用oject.wait()后，进入WAITING状态，会等待object.notify/notifyall，收到这个信号后，会进入BLOCKED，意思是一直阻塞知道获取监视器<br />
+这也就是notify 和 notifyall的区别</p>
+
+<h2 id="start"><em>start()</em></h2>
+
+<div class="highlight"><pre><code class="java"><span class="lineno"> 1</span> <span class="kd">public</span> <span class="kd">synchronized</span> <span class="kt">void</span> <span class="nf">start</span><span class="o">()</span> <span class="o">{</span>
+<span class="lineno"> 2</span>         <span class="k">if</span> <span class="o">(</span><span class="n">threadStatus</span> <span class="o">!=</span> <span class="mi">0</span><span class="o">)</span>
+<span class="lineno"> 3</span>             <span class="k">throw</span> <span class="k">new</span> <span class="nf">IllegalThreadStateException</span><span class="o">();</span>
+<span class="lineno"> 4</span> 
+<span class="lineno"> 5</span>         <span class="cm">/* Notify the group that this thread is about to be started</span>
+<span class="lineno"> 6</span> <span class="cm">         * so that it can be added to the group&#39;s list of threads</span>
+<span class="lineno"> 7</span> <span class="cm">         * and the group&#39;s unstarted count can be decremented. */</span>
+<span class="lineno"> 8</span>         <span class="n">group</span><span class="o">.</span><span class="na">add</span><span class="o">(</span><span class="k">this</span><span class="o">);</span>
+<span class="lineno"> 9</span> 
+<span class="lineno">10</span>         <span class="kt">boolean</span> <span class="n">started</span> <span class="o">=</span> <span class="kc">false</span><span class="o">;</span>
+<span class="lineno">11</span>         <span class="k">try</span> <span class="o">{</span>
+<span class="lineno">12</span>             <span class="n">start0</span><span class="o">();</span>
+<span class="lineno">13</span>             <span class="n">started</span> <span class="o">=</span> <span class="kc">true</span><span class="o">;</span>
+<span class="lineno">14</span>         <span class="o">}</span> <span class="k">finally</span> <span class="o">{</span>
+<span class="lineno">15</span>             <span class="k">try</span> <span class="o">{</span>
+<span class="lineno">16</span>                 <span class="k">if</span> <span class="o">(!</span><span class="n">started</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno">17</span>                     <span class="n">group</span><span class="o">.</span><span class="na">threadStartFailed</span><span class="o">(</span><span class="k">this</span><span class="o">);</span>
+<span class="lineno">18</span>                 <span class="o">}</span>
+<span class="lineno">19</span>             <span class="o">}</span> <span class="k">catch</span> <span class="o">(</span><span class="n">Throwable</span> <span class="n">ignore</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno">20</span>                 <span class="cm">/* do nothing. If start0 threw a Throwable then</span>
+<span class="lineno">21</span> <span class="cm">                  it will be passed up the call stack */</span>
+<span class="lineno">22</span>             <span class="o">}</span>
+<span class="lineno">23</span>         <span class="o">}</span>
+<span class="lineno">24</span> <span class="o">}</span></code></pre></div>
+
+<ul>
+  <li>
+    <p>首先，校验线程状态，如果已经启动过了，就会抛出异常，表明一个线程只能启动一次，就算是结束之后</p>
+  </li>
+  <li>
+    <p>把线程加入一个group中， 这是一个ThreadGroup实例， 大致就是用来把线程组织成层次结构，方便管理线程， 具体没有深究</p>
+  </li>
+  <li>
+    <p>调用start0()这个native方法，来由jvm启动这个线程</p>
+  </li>
+</ul>
+
+<h2 id="stop"><em>stop()</em></h2>
+
+<div class="highlight"><pre><code class="java"><span class="lineno"> 1</span> <span class="kd">public</span> <span class="kd">final</span> <span class="kd">synchronized</span> <span class="kt">void</span> <span class="nf">stop</span><span class="o">(</span><span class="n">Throwable</span> <span class="n">obj</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno"> 2</span> 	<span class="k">if</span> <span class="o">(</span><span class="n">obj</span> <span class="o">==</span> <span class="kc">null</span><span class="o">)</span>
+<span class="lineno"> 3</span> 		<span class="k">throw</span> <span class="k">new</span> <span class="nf">NullPointerException</span><span class="o">();</span>
+<span class="lineno"> 4</span> 
+<span class="lineno"> 5</span> 	<span class="n">SecurityManager</span> <span class="n">security</span> <span class="o">=</span> <span class="n">System</span><span class="o">.</span><span class="na">getSecurityManager</span><span class="o">();</span>
+<span class="lineno"> 6</span> 	<span class="k">if</span> <span class="o">(</span><span class="n">security</span> <span class="o">!=</span> <span class="kc">null</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno"> 7</span> 		<span class="n">checkAccess</span><span class="o">();</span>
+<span class="lineno"> 8</span>     	<span class="k">if</span> <span class="o">((</span><span class="k">this</span> <span class="o">!=</span> <span class="n">Thread</span><span class="o">.</span><span class="na">currentThread</span><span class="o">())</span> <span class="o">||</span>
+<span class="lineno"> 9</span> 			<span class="o">(!(</span><span class="n">obj</span> <span class="k">instanceof</span> <span class="n">ThreadDeath</span><span class="o">)))</span> <span class="o">{</span>
+<span class="lineno">10</span>                 <span class="n">security</span><span class="o">.</span><span class="na">checkPermission</span><span class="o">(</span><span class="n">SecurityConstants</span><span class="o">.</span><span class="na">STOP_THREAD_PERMISSION</span><span class="o">);</span>
+<span class="lineno">11</span>             <span class="o">}</span>
+<span class="lineno">12</span>         <span class="o">}</span>
+<span class="lineno">13</span>    	<span class="c1">// A zero status value corresponds to &quot;NEW&quot;, it can&#39;t change to</span>
+<span class="lineno">14</span>     <span class="c1">// not-NEW because we hold the lock.</span>
+<span class="lineno">15</span>     <span class="k">if</span> <span class="o">(</span><span class="n">threadStatus</span> <span class="o">!=</span> <span class="mi">0</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno">16</span>         <span class="n">resume</span><span class="o">();</span> <span class="c1">// Wake up thread if it was suspended; no-op otherwise</span>
+<span class="lineno">17</span>     <span class="o">}</span>
+<span class="lineno">18</span> 
+<span class="lineno">19</span>     <span class="c1">// The VM can handle all thread states</span>
+<span class="lineno">20</span>     <span class="n">stop0</span><span class="o">(</span><span class="n">obj</span><span class="o">);</span>
+<span class="lineno">21</span> <span class="o">}</span></code></pre></div>
+
+<ul>
+  <li>
+    <p>stop() 最终会调用 stop(Throwable obj)</p>
+  </li>
+  <li>
+    <p>先做一些安全性的检查</p>
+  </li>
+  <li>
+    <p>将线程resume(最终会调用native的resume0, 由JVM来完成)</p>
+  </li>
+  <li>
+    <p>由JVM完成stop0工作</p>
+  </li>
+</ul>
+
+<p>我们都知道， stop早已被deprecated了，为什么呢？<br />
+当一个线程被中止时，它所获得的对象的监视器锁都会被释放， 但由于工作没有做完，导致对象是一个中止的状态， 那么线程间的一些数据同步就会被打乱，因此它是不安全的</p>
+
+<p>那怎么办嘞？</p>
+
+<h2 id="interrupt"><em>interrupt()</em></h2>
+
+<div class="highlight"><pre><code class="java"><span class="lineno"> 1</span> <span class="kd">public</span> <span class="kt">void</span> <span class="nf">interrupt</span><span class="o">()</span> <span class="o">{</span>
+<span class="lineno"> 2</span> 	<span class="k">if</span> <span class="o">(</span><span class="k">this</span> <span class="o">!=</span> <span class="n">Thread</span><span class="o">.</span><span class="na">currentThread</span><span class="o">())</span>
+<span class="lineno"> 3</span> 		<span class="n">checkAccess</span><span class="o">();</span>
+<span class="lineno"> 4</span> 
+<span class="lineno"> 5</span>     <span class="kd">synchronized</span> <span class="o">(</span><span class="n">blockerLock</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno"> 6</span>         <span class="n">Interruptible</span> <span class="n">b</span> <span class="o">=</span> <span class="n">blocker</span><span class="o">;</span>
+<span class="lineno"> 7</span>         <span class="k">if</span> <span class="o">(</span><span class="n">b</span> <span class="o">!=</span> <span class="kc">null</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno"> 8</span>             <span class="n">interrupt0</span><span class="o">();</span>           <span class="c1">// Just to set the interrupt flag</span>
+<span class="lineno"> 9</span>             <span class="n">b</span><span class="o">.</span><span class="na">interrupt</span><span class="o">(</span><span class="k">this</span><span class="o">);</span>
+<span class="lineno">10</span>             <span class="k">return</span><span class="o">;</span>
+<span class="lineno">11</span>         <span class="o">}</span>
+<span class="lineno">12</span>     <span class="o">}</span>
+<span class="lineno">13</span>     <span class="n">interrupt0</span><span class="o">();</span>
+<span class="lineno">14</span> <span class="o">}</span></code></pre></div>
+
+<ul>
+  <li>
+    <p>如果是其他线程调用interrupt，要检查安全性， 如果当前线程没有权限修改这个线程，则抛出SecurityException</p>
+  </li>
+  <li>
+    <p>用一个blockerLock来保证native的interrupt0是线程安全的</p>
+  </li>
+  <li>
+    <p>本质是interrupt0只是设置了中断标志位</p>
+  </li>
+  <li>
+    <p>如果线程阻塞在object.wait()、join()、sleep()， 那么将会清除中断标志，并收到InterruptedException</p>
+  </li>
+  <li>
+    <p>如果线程阻塞在一个InterruptibleChannel的I/O操作中， 中断位会被设置，并收到ClosedByInterruptException （属于java nio的内容， 留着以后看）</p>
+  </li>
+  <li>
+    <p>如果阻塞在一个java.nio.channels.Selector， 中断位会被设置， 并且会返回一个非零值 （也属于java.nio.channels, 留看）</p>
+  </li>
+  <li>
+    <p>如果上述情况都没有发生，就会设置中断标志位</p>
+  </li>
+  <li>
+    <p>如果终端一个非alive的线程（如果一个线程已经启动，并且没有结束，那就是alive），啥也不会发生</p>
+  </li>
+</ul>
+
+<p>基本上只是把注释翻译了一遍， 但是这样看来， interrupt跟我们理解的中断不太一样，它只是将中断标志设置了一下，除非线程在一些阻塞情况下会收到中断异常，其它状况下，什么也不会发生</p>
+
+<h2 id="interrupted--isinterrupted"><em>interrupted() &amp;&amp; isInterrupted()</em></h2>
+
+<div class="highlight"><pre><code class="java"><span class="lineno">1</span> <span class="kd">public</span> <span class="kd">static</span> <span class="kt">boolean</span> <span class="nf">interrupted</span><span class="o">()</span> <span class="o">{</span>
+<span class="lineno">2</span>    <span class="k">return</span> <span class="nf">currentThread</span><span class="o">().</span><span class="na">isInterrupted</span><span class="o">(</span><span class="kc">true</span><span class="o">);</span>
+<span class="lineno">3</span> <span class="o">}</span>
+<span class="lineno">4</span> 
+<span class="lineno">5</span> <span class="kd">public</span> <span class="kt">boolean</span> <span class="nf">isInterrupted</span><span class="o">()</span> <span class="o">{</span>
+<span class="lineno">6</span>     <span class="k">return</span> <span class="nf">isInterrupted</span><span class="o">(</span><span class="kc">false</span><span class="o">);</span>
+<span class="lineno">7</span> <span class="o">}</span></code></pre></div>
+
+<p>因此，我们要看的其实是</p>
+
+<div class="highlight"><pre><code class="java"><span class="lineno">1</span> <span class="cm">/**</span>
+<span class="lineno">2</span> <span class="cm"> * Tests if some Thread has been interrupted.  The interrupted state</span>
+<span class="lineno">3</span> <span class="cm"> * is reset or not based on the value of ClearInterrupted that is</span>
+<span class="lineno">4</span> <span class="cm"> * passed.</span>
+<span class="lineno">5</span> <span class="cm"> */</span>
+<span class="lineno">6</span> <span class="kd">private</span> <span class="kd">native</span> <span class="kt">boolean</span> <span class="nf">isInterrupted</span><span class="o">(</span><span class="kt">boolean</span> <span class="n">ClearInterrupted</span><span class="o">);</span></code></pre></div>
+
+<ul>
+  <li>显然， interrupted返回中断标志的状态并且将中断标志清除， 而isInterrupted并不清除中断标志</li>
+</ul>
+
+<h2 id="yield"><em>yield()</em></h2>
+
+<div class="highlight"><pre><code class="java"><span class="lineno"> 1</span> <span class="cm">/**</span>
+<span class="lineno"> 2</span> <span class="cm">     * A hint to the scheduler that the current thread is willing to yield</span>
+<span class="lineno"> 3</span> <span class="cm">     * its current use of a processor. The scheduler is free to ignore this</span>
+<span class="lineno"> 4</span> <span class="cm">     * hint.</span>
+<span class="lineno"> 5</span> <span class="cm">     *</span>
+<span class="lineno"> 6</span> <span class="cm">     * &lt;p&gt; Yield is a heuristic attempt to improve relative progression</span>
+<span class="lineno"> 7</span> <span class="cm">     * between threads that would otherwise over-utilise a CPU. Its use</span>
+<span class="lineno"> 8</span> <span class="cm">     * should be combined with detailed profiling and benchmarking to</span>
+<span class="lineno"> 9</span> <span class="cm">     * ensure that it actually has the desired effect.</span>
+<span class="lineno">10</span> <span class="cm">     *</span>
+<span class="lineno">11</span> <span class="cm">     * &lt;p&gt; It is rarely appropriate to use this method. It may be useful</span>
+<span class="lineno">12</span> <span class="cm">     * for debugging or testing purposes, where it may help to reproduce</span>
+<span class="lineno">13</span> <span class="cm">     * bugs due to race conditions. It may also be useful when designing</span>
+<span class="lineno">14</span> <span class="cm">     * concurrency control constructs such as the ones in the</span>
+<span class="lineno">15</span> <span class="cm">     * {@link java.util.concurrent.locks} package.</span>
+<span class="lineno">16</span> <span class="cm">     */</span>
+<span class="lineno">17</span>     <span class="kd">public</span> <span class="kd">static</span> <span class="kd">native</span> <span class="kt">void</span> <span class="nf">yield</span><span class="o">();</span></code></pre></div>
+
+<ul>
+  <li>也是一个native方法， 大致就是做一个好人， 告诉调度器自己愿意把当前的处理器让出来， 至于说辅助并发控制， 这里留一个疑问， 以后研究lock的时候再看看</li>
+</ul>
+
+<h2 id="sleep"><em>sleep()</em></h2>
+
+<ul>
+  <li>也是一个本质native方法， 源码就不放了， 要注意的是， 在sleep过程中，线程并没有放弃它所持有的对象监控器的所有权，也就是我们理解的没有释放锁， 但是在sleep期间是会释放cpu的， 具体的调度由JVM乃至OS去完成</li>
+</ul>
+
+<h2 id="join"><em>join()</em></h2>
+
+<div class="highlight"><pre><code class="java"><span class="lineno"> 1</span> <span class="cm">/**</span>
+<span class="lineno"> 2</span> <span class="cm">     * Waits for this thread to die.</span>
+<span class="lineno"> 3</span> <span class="cm">     *</span>
+<span class="lineno"> 4</span> <span class="cm">     * &lt;p&gt; An invocation of this method behaves in exactly the same</span>
+<span class="lineno"> 5</span> <span class="cm">     * way as the invocation</span>
+<span class="lineno"> 6</span> <span class="cm">     *</span>
+<span class="lineno"> 7</span> <span class="cm">     * &lt;blockquote&gt;</span>
+<span class="lineno"> 8</span> <span class="cm">     * {@linkplain #join(long) join}{@code (0)}</span>
+<span class="lineno"> 9</span> <span class="cm">     * &lt;/blockquote&gt;</span>
+<span class="lineno">10</span> <span class="cm">     *</span>
+<span class="lineno">11</span> <span class="cm">     * @throws  InterruptedException</span>
+<span class="lineno">12</span> <span class="cm">     *          if any thread has interrupted the current thread. The</span>
+<span class="lineno">13</span> <span class="cm">     *          &lt;i&gt;interrupted status&lt;/i&gt; of the current thread is</span>
+<span class="lineno">14</span> <span class="cm">     *          cleared when this exception is thrown.</span>
+<span class="lineno">15</span> <span class="cm">     */</span>
+<span class="lineno">16</span>     <span class="kd">public</span> <span class="kd">final</span> <span class="kt">void</span> <span class="nf">join</span><span class="o">()</span> <span class="kd">throws</span> <span class="n">InterruptedException</span> <span class="o">{</span>
+<span class="lineno">17</span>         <span class="n">join</span><span class="o">(</span><span class="mi">0</span><span class="o">);</span>
+<span class="lineno">18</span>     <span class="o">}</span></code></pre></div>
+
+<ul>
+  <li>等待这个线程结束， 如果interrupt了等待中的线程（也就是当前线程， 注意，不是被等待的那个线程）， 会抛出InterruptedExecption</li>
+</ul>
+
+<h2 id="section"><strong>总结</strong></h2>
+
+<ol>
+  <li>
+    <p>罗列了一下线程这些常用操作的源代码，简单的翻译了一下注释， 大致搞清楚它们的作用， 由于涉及native代码， 因此也没有深究线程调度的深层机制， 这块涉及到jvm对于线程的管理，以后有机会还是要继续学习，但还不是我这个阶段的目标</p>
+  </li>
+  <li>
+    <p>所以我们知道了interrupt到底干了什么，stop为什么是不安全的，至于如何优雅的结束一个线程，我以为要不断的check中断标志位，根据具体的需求来决定是否要响应这个中断</p>
+  </li>
+  <li>
+    <p>涉及到对象监视器的概念， 现在已经知道这是用来控制对象的所有权的， 后续会慢慢深入理解它到底是个什么鬼、线程又是如何抢占它的</p>
+  </li>
+</ol>
+
+
+  </article>
+
+</div>
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h5 class="footer-heading">如有疑问，可以微博私信我或者发邮件给我</h5>
+
+    <div class="footer-col-1 column">
+      <ul>
+        <li>MoonfaceX</li>
+        <li><a href="mailto:mr.moonfacex@gmail.com">mr.moonfacex@gmail.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username"></span>
+          </a>
+        </li>
+        <li>
+          <!--<a href="https://twitter.com/">-->
+	  <a href="http://weibo.com/u/1005421853"
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username"></span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+      <p class="text">You'll never walk alone.</p>
+    </div>
+
+  </div>
+
+</footer>
+
+
+    </body>
+</html>
