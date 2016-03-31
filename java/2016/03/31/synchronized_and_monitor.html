@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>synchronized与object's monitor</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="You'll never walk alone.">
+    <link rel="canonical" href="http://moonfacex.github.io/moonface.github.io/java/2016/03/31/synchronized_and_monitor.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="http://moonfacex.github.io/moonface.github.io/css/main.css">
+
+</head>
+
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="http://moonfacex.github.io/moonface.github.io">Moonface Space</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+        
+          <a class="page-link" href="http://moonfacex.github.io/moonface.github.io/about/">About</a>
+        
+          <a class="page-link" href="http://moonfacex.github.io/moonface.github.io/feed.xml"></a>
+        
+          <a class="page-link" href="http://moonfacex.github.io/moonface.github.io/index.html"></a>
+        
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>synchronized与object's monitor</h1>
+    <p class="meta">Mar 31, 2016</p>
+  </header>
+
+  <article class="post-content">
+  <p>synchronized应该是我们最早接触到的java中同步的方法了， 大致有这么几种用法：</p>
+
+<div class="highlight"><pre><code class="java"><span class="lineno"> 1</span> <span class="kd">public</span> <span class="kd">class</span> <span class="nc">SuperClass</span> <span class="o">{</span>
+<span class="lineno"> 2</span> 
+<span class="lineno"> 3</span>     <span class="kd">public</span> <span class="kd">synchronized</span> <span class="kt">void</span> <span class="nf">method0</span><span class="o">()</span> <span class="o">{</span>
+<span class="lineno"> 4</span>     <span class="o">}</span>
+<span class="lineno"> 5</span> 
+<span class="lineno"> 6</span>     <span class="kd">public</span> <span class="kd">static</span> <span class="kd">synchronized</span> <span class="kt">void</span> <span class="nf">method1</span><span class="o">()</span> <span class="o">{}</span>
+<span class="lineno"> 7</span> 
+<span class="lineno"> 8</span>     <span class="n">Object</span> <span class="n">object</span> <span class="o">=</span> <span class="k">new</span> <span class="n">Object</span><span class="o">();</span>
+<span class="lineno"> 9</span>     <span class="kd">public</span> <span class="kt">void</span> <span class="nf">method3</span><span class="o">()</span> <span class="o">{</span>
+<span class="lineno">10</span>         <span class="kd">synchronized</span> <span class="o">(</span><span class="n">object</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno">11</span>         <span class="o">}</span>
+<span class="lineno">12</span>     <span class="o">}</span>
+<span class="lineno">13</span> 
+<span class="lineno">14</span>     <span class="kd">public</span> <span class="kt">void</span> <span class="nf">method4</span><span class="o">()</span> <span class="o">{</span>
+<span class="lineno">15</span>         <span class="kd">synchronized</span> <span class="o">(</span><span class="k">this</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno">16</span>         <span class="o">}</span>
+<span class="lineno">17</span>     <span class="o">}</span>
+<span class="lineno">18</span> 
+<span class="lineno">19</span>     <span class="kd">static</span> <span class="n">Object</span> <span class="n">sObject</span> <span class="o">=</span> <span class="k">new</span> <span class="n">Object</span><span class="o">();</span>
+<span class="lineno">20</span>     <span class="kd">public</span> <span class="kt">void</span> <span class="nf">method5</span><span class="o">()</span> <span class="o">{</span>
+<span class="lineno">21</span>         <span class="kd">synchronized</span> <span class="o">(</span><span class="n">sObject</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno">22</span>         <span class="o">}</span>
+<span class="lineno">23</span>     <span class="o">}</span>
+<span class="lineno">24</span> 
+<span class="lineno">25</span>     <span class="kd">public</span> <span class="kt">void</span> <span class="nf">method6</span><span class="o">()</span> <span class="o">{</span>
+<span class="lineno">26</span>         <span class="kd">synchronized</span> <span class="o">(</span><span class="n">SuperClass</span><span class="o">.</span><span class="na">class</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno">27</span>         <span class="o">}</span>
+<span class="lineno">28</span>     <span class="o">}</span>
+<span class="lineno">29</span> 
+<span class="lineno">30</span> <span class="o">}</span></code></pre></div>
+
+<p>具体试验的代码就不贴出来了， 直接总结一下吧：</p>
+
+<ul>
+  <li>
+    <p>无论sychronized怎么用，本质上都是获取一个对象的monitor， JVM保证一个对象的monitor只能被一个线程持有，因此保证了互斥</p>
+  </li>
+  <li>
+    <p>sychronized一个实例的方法， 就是获取这个实例对象的monitor</p>
+  </li>
+  <li>
+    <p>sychronized一个类static方法， 就是获取这个类class对象的monitor</p>
+  </li>
+  <li>
+    <p>sychronized一个object， 那就是获取这个object的monitor， 无论它是class对象、普通对象 或者是static成员， 只要是不同的对象或者不同时对这个对象请求monitor控制权，就不存在互斥关系</p>
+  </li>
+</ul>
+
+<p>因此我们看到，所有的互斥操作都是基于Object来完成的，并且多次提到了object’s monitor, 它到底是什么？ 先放一边， 我们先看看这一对难兄难弟：</p>
+
+<div class="highlight"><pre><code class="java"><span class="lineno"> 1</span> <span class="cm">/**</span>
+<span class="lineno"> 2</span> <span class="cm">     * Causes the current thread to wait until another thread invokes the</span>
+<span class="lineno"> 3</span> <span class="cm">     * {@link java.lang.Object#notify()} method or the</span>
+<span class="lineno"> 4</span> <span class="cm">     * {@link java.lang.Object#notifyAll()} method for this object.</span>
+<span class="lineno"> 5</span> <span class="cm">     * In other words, this method behaves exactly as if it simply</span>
+<span class="lineno"> 6</span> <span class="cm">     * performs the call {@code wait(0)}.</span>
+<span class="lineno"> 7</span> <span class="cm">     * &lt;p&gt;</span>
+<span class="lineno"> 8</span> <span class="cm">     * The current thread must own this object&#39;s monitor. The thread</span>
+<span class="lineno"> 9</span> <span class="cm">     * releases ownership of this monitor and waits until another thread</span>
+<span class="lineno">10</span> <span class="cm">     * notifies threads waiting on this object&#39;s monitor to wake up</span>
+<span class="lineno">11</span> <span class="cm">     * either through a call to the {@code notify} method or the</span>
+<span class="lineno">12</span> <span class="cm">     * {@code notifyAll} method. The thread then waits until it can</span>
+<span class="lineno">13</span> <span class="cm">     * re-obtain ownership of the monitor and resumes execution.</span>
+<span class="lineno">14</span> <span class="cm">     * &lt;p&gt;</span>
+<span class="lineno">15</span> <span class="cm">     * As in the one argument version, interrupts and spurious wakeups are</span>
+<span class="lineno">16</span> <span class="cm">     * possible, and this method should always be used in a loop:</span>
+<span class="lineno">17</span> <span class="cm">     * &lt;pre&gt;</span>
+<span class="lineno">18</span> <span class="cm">     *     synchronized (obj) {</span>
+<span class="lineno">19</span> <span class="cm">     *         while (&amp;lt;condition does not hold&amp;gt;)</span>
+<span class="lineno">20</span> <span class="cm">     *             obj.wait();</span>
+<span class="lineno">21</span> <span class="cm">     *         ... // Perform action appropriate to condition</span>
+<span class="lineno">22</span> <span class="cm">     *     }</span>
+<span class="lineno">23</span> <span class="cm">     * &lt;/pre&gt;</span>
+<span class="lineno">24</span> <span class="cm">     * This method should only be called by a thread that is the owner</span>
+<span class="lineno">25</span> <span class="cm">     * of this object&#39;s monitor. See the {@code notify} method for a</span>
+<span class="lineno">26</span> <span class="cm">     * description of the ways in which a thread can become the owner of</span>
+<span class="lineno">27</span> <span class="cm">     * a monitor.</span>
+<span class="lineno">28</span> <span class="cm">     *</span>
+<span class="lineno">29</span> <span class="cm">     * @exception  IllegalMonitorStateException  if the current thread is not</span>
+<span class="lineno">30</span> <span class="cm">     *               the owner of the object&#39;s monitor.</span>
+<span class="lineno">31</span> <span class="cm">     * @exception  InterruptedException if any thread interrupted the</span>
+<span class="lineno">32</span> <span class="cm">     *             current thread before or while the current thread</span>
+<span class="lineno">33</span> <span class="cm">     *             was waiting for a notification.  The &lt;i&gt;interrupted</span>
+<span class="lineno">34</span> <span class="cm">     *             status&lt;/i&gt; of the current thread is cleared when</span>
+<span class="lineno">35</span> <span class="cm">     *             this exception is thrown.</span>
+<span class="lineno">36</span> <span class="cm">     * @see        java.lang.Object#notify()</span>
+<span class="lineno">37</span> <span class="cm">     * @see        java.lang.Object#notifyAll()</span>
+<span class="lineno">38</span> <span class="cm">     */</span>
+<span class="lineno">39</span>     <span class="kd">public</span> <span class="kd">final</span> <span class="kt">void</span> <span class="nf">wait</span><span class="o">()</span> <span class="kd">throws</span> <span class="n">InterruptedException</span> <span class="o">{</span>
+<span class="lineno">40</span>         <span class="n">wait</span><span class="o">(</span><span class="mi">0</span><span class="o">);</span>
+<span class="lineno">41</span>     <span class="o">}</span></code></pre></div>
+
+<ul>
+  <li>
+    <p>调用这个方法导致当前线程进入等待(我的理解是进入WAITING/TIME_WAITING状态)，直到别的线程调用此对象的notify/notifyAll</p>
+  </li>
+  <li>
+    <p>当前线程必须持有这个对象的monitor(否则会收到IllegalMonitorsStateException)，调用wait后，释放它的所有权，当别的线程调用此对象的notify/notifyAll时，会唤醒此线程，但是它仍要等到能重新获得这个monitor才能继续执行</p>
+  </li>
+  <li>
+    <p>当设置intrrupt标志位时，会抛出InterruptedException，就像上一篇文章里说的那样</p>
+  </li>
+</ul>
+
+<hr />
+
+<div class="highlight"><pre><code class="java"><span class="lineno"> 1</span> <span class="cm">/**</span>
+<span class="lineno"> 2</span> <span class="cm">     * Wakes up a single thread that is waiting on this object&#39;s</span>
+<span class="lineno"> 3</span> <span class="cm">     * monitor. If any threads are waiting on this object, one of them</span>
+<span class="lineno"> 4</span> <span class="cm">     * is chosen to be awakened. The choice is arbitrary and occurs at</span>
+<span class="lineno"> 5</span> <span class="cm">     * the discretion of the implementation. A thread waits on an object&#39;s</span>
+<span class="lineno"> 6</span> <span class="cm">     * monitor by calling one of the {@code wait} methods.</span>
+<span class="lineno"> 7</span> <span class="cm">     * &lt;p&gt;</span>
+<span class="lineno"> 8</span> <span class="cm">     * The awakened thread will not be able to proceed until the current</span>
+<span class="lineno"> 9</span> <span class="cm">     * thread relinquishes the lock on this object. The awakened thread will</span>
+<span class="lineno">10</span> <span class="cm">     * compete in the usual manner with any other threads that might be</span>
+<span class="lineno">11</span> <span class="cm">     * actively competing to synchronize on this object; for example, the</span>
+<span class="lineno">12</span> <span class="cm">     * awakened thread enjoys no reliable privilege or disadvantage in being</span>
+<span class="lineno">13</span> <span class="cm">     * the next thread to lock this object.</span>
+<span class="lineno">14</span> <span class="cm">     * &lt;p&gt;</span>
+<span class="lineno">15</span> <span class="cm">     * This method should only be called by a thread that is the owner</span>
+<span class="lineno">16</span> <span class="cm">     * of this object&#39;s monitor. A thread becomes the owner of the</span>
+<span class="lineno">17</span> <span class="cm">     * object&#39;s monitor in one of three ways:</span>
+<span class="lineno">18</span> <span class="cm">     * &lt;ul&gt;</span>
+<span class="lineno">19</span> <span class="cm">     * &lt;li&gt;By executing a synchronized instance method of that object.</span>
+<span class="lineno">20</span> <span class="cm">     * &lt;li&gt;By executing the body of a {@code synchronized} statement</span>
+<span class="lineno">21</span> <span class="cm">     *     that synchronizes on the object.</span>
+<span class="lineno">22</span> <span class="cm">     * &lt;li&gt;For objects of type {@code Class,} by executing a</span>
+<span class="lineno">23</span> <span class="cm">     *     synchronized static method of that class.</span>
+<span class="lineno">24</span> <span class="cm">     * &lt;/ul&gt;</span>
+<span class="lineno">25</span> <span class="cm">     * &lt;p&gt;</span>
+<span class="lineno">26</span> <span class="cm">     * Only one thread at a time can own an object&#39;s monitor.</span>
+<span class="lineno">27</span> <span class="cm">     *</span>
+<span class="lineno">28</span> <span class="cm">     * @exception  IllegalMonitorStateException  if the current thread is not</span>
+<span class="lineno">29</span> <span class="cm">     *               the owner of this object&#39;s monitor.</span>
+<span class="lineno">30</span> <span class="cm">     * @see        java.lang.Object#notifyAll()</span>
+<span class="lineno">31</span> <span class="cm">     * @see        java.lang.Object#wait()</span>
+<span class="lineno">32</span> <span class="cm">     */</span>
+<span class="lineno">33</span>     <span class="kd">public</span> <span class="kd">final</span> <span class="kd">native</span> <span class="kt">void</span> <span class="nf">notify</span><span class="o">();</span>
+<span class="lineno">34</span> 
+<span class="lineno">35</span> 
+<span class="lineno">36</span> 
+<span class="lineno">37</span> 
+<span class="lineno">38</span> 
+<span class="lineno">39</span>     <span class="cm">/**</span>
+<span class="lineno">40</span> <span class="cm">     * Wakes up all threads that are waiting on this object&#39;s monitor. A</span>
+<span class="lineno">41</span> <span class="cm">     * thread waits on an object&#39;s monitor by calling one of the</span>
+<span class="lineno">42</span> <span class="cm">     * {@code wait} methods.</span>
+<span class="lineno">43</span> <span class="cm">     * &lt;p&gt;</span>
+<span class="lineno">44</span> <span class="cm">     * The awakened threads will not be able to proceed until the current</span>
+<span class="lineno">45</span> <span class="cm">     * thread relinquishes the lock on this object. The awakened threads</span>
+<span class="lineno">46</span> <span class="cm">     * will compete in the usual manner with any other threads that might</span>
+<span class="lineno">47</span> <span class="cm">     * be actively competing to synchronize on this object; for example,</span>
+<span class="lineno">48</span> <span class="cm">     * the awakened threads enjoy no reliable privilege or disadvantage in</span>
+<span class="lineno">49</span> <span class="cm">     * being the next thread to lock this object.</span>
+<span class="lineno">50</span> <span class="cm">     * &lt;p&gt;</span>
+<span class="lineno">51</span> <span class="cm">     * This method should only be called by a thread that is the owner</span>
+<span class="lineno">52</span> <span class="cm">     * of this object&#39;s monitor. See the {@code notify} method for a</span>
+<span class="lineno">53</span> <span class="cm">     * description of the ways in which a thread can become the owner of</span>
+<span class="lineno">54</span> <span class="cm">     * a monitor.</span>
+<span class="lineno">55</span> <span class="cm">     *</span>
+<span class="lineno">56</span> <span class="cm">     * @exception  IllegalMonitorStateException  if the current thread is not</span>
+<span class="lineno">57</span> <span class="cm">     *               the owner of this object&#39;s monitor.</span>
+<span class="lineno">58</span> <span class="cm">     * @see        java.lang.Object#notify()</span>
+<span class="lineno">59</span> <span class="cm">     * @see        java.lang.Object#wait()</span>
+<span class="lineno">60</span> <span class="cm">     */</span>
+<span class="lineno">61</span>     <span class="kd">public</span> <span class="kd">final</span> <span class="kd">native</span> <span class="kt">void</span> <span class="nf">notifyAll</span><span class="o">();</span></code></pre></div>
+
+<ul>
+  <li>
+    <p>唤醒一个等待此对象monitor(调用wait)的线程，但不保证是哪一个，我的理解就是将线程从WAITING状态恢复到BLOCKED状态</p>
+  </li>
+  <li>
+    <p>被唤醒的那个线程还要去跟别的线程(同样synchronized这个object)竞争获得这个monitor的控制权，拿到了才能恢复为RUNNABLE状态</p>
+  </li>
+  <li>
+    <p>调用此方法的先决条件是当前线程要持有这个对象的monitor</p>
+  </li>
+  <li>
+    <p>notifyAll跟notify的差别就是它会唤醒所有等待这个monitor的线程</p>
+  </li>
+</ul>
+
+<p>那么为什么不推荐用notify呢， 因为唤醒一个线程后并且它争取到了这个monitor，但是由于条件不满足而重新进入wait(见上面wait注释中的代码， 至于为什么有可能条件不满足，自己想吧，这也是为什么synchronized不够精细而祭出Lock+Condition的原因吧)</p>
+
+<h2 id="boss-objects-monitor"><em>终极Boss: object’s Monitor</em></h2>
+
+<p>先问一个问题，为啥线程需要互斥和同步？<br />
+这涉及到jvm的内存模型，一个进程中，所有线程是共享堆的，所有的对象的new操作全部在堆上完成，这就意味着所有线程都能访问到堆中的同一对象，因此需要保证访问的互斥、同步关系</p>
+
+<p>什么是monitor， wiki上大致是这样说的:</p>
+
+<ul>
+  <li>
+    <p>monitor是java提供的一种对锁的封装</p>
+  </li>
+  <li>
+    <p>monitor可以保证所有线程互斥的获得一个锁</p>
+  </li>
+  <li>
+    <p>monitor可以让出对锁的权限并且等待一个条件去重新获得这个锁</p>
+  </li>
+  <li>
+    <p>monitor可以发出信号通知别的线程他们等待的条件被满足了</p>
+  </li>
+</ul>
+
+<p>来给一个monitor的执行序列图吧：
+<img src="https://www.ibm.com/developerworks/cn/java/j-lo-synchronized/figure001.jpg" alt="pic1" /></p>
+
+<p>那么到底到底，monitor怎么实现的呢？<br />
+还是wiki了一下<a href="https://en.wikipedia.org/wiki/Monitor_%28synchronization%29">https://en.wikipedia.org/wiki/Monitor_%28synchronization%29</a><br />
+可以通过我们学过的操作系统中的mutex和semaphore来实现，前者保证同步，后者保证互斥，这两者都需要硬件来支持原子性的操作</p>
+
+<p>下面来看看mutex如何实现monitor的condition的功能的</p>
+
+<ol>
+  <li>
+    <p>上锁，使用mutex.acquire(), 本质上mutex就是这个锁</p>
+  </li>
+  <li>
+    <p>wait，维护一个waitingQueue，把当前线程加入这个队列, mutex.release()， 交出锁的控制权，sleep进入休眠状态， 被唤醒时重新mutex.acquire()去获得锁</p>
+  </li>
+  <li>
+    <p>signal，维护一个readyQueue，将waitingQueue里面的队头取出来加入readyQueue， 由OS去唤醒readyQueue里面的线程</p>
+  </li>
+</ol>
+
+<p>那么mutex怎么做到上锁、解锁这个过程的呢？</p>
+
+<ol>
+  <li>
+    <p>使用原子指令如test-and-set、compare-and-set来实现自旋锁来保证对关键段的访问， 无论是acquire还是release都要先处理这个过程</p>
+  </li>
+  <li>
+    <p>维护一个held的bool值， acquire()时，先去看是否held， 如果held，说明别的线程拥有这个锁， 当前线程进入blockingQueue，睡眠并等待唤醒，唤醒后或者一开始held就是false，将held设为true，表示当前线程持有了锁</p>
+  </li>
+  <li>
+    <p>release()时， 直接将held设为false， 将blockingQueue中的头放到readyQueue中， OS会自行调度</p>
+  </li>
+</ol>
+
+<p><img src="https://www.ibm.com/developerworks/cn/java/j-lo-synchronized/figure002.jpg" alt="pic2" /></p>
+
+<h2 id="section"><em>总结</em></h2>
+
+<ul>
+  <li>
+    <p>锁， 本质上是在一段critical section代码中维护一个状态， 这个状态就代表着当前是上锁的还是没被上锁</p>
+  </li>
+  <li>
+    <p>线程对锁的请求，用一个等待队列来对想要请求锁的队列进行排队，当锁释放时，拿出一个来让它获取锁</p>
+  </li>
+  <li>
+    <p>如何实现condition，本质上wait是对锁的释放并把自己放入等待队列， signal就是去等待队列中唤醒一个线程， 等当前线程把锁释放后，那个线程就可以获得这个锁了</p>
+  </li>
+  <li>
+    <p>回到java层面， object’s monitor可以做到上面一系列操作， 但是缺点也很明显:1.没办法实现非公平锁		2.一个锁没办法使用多个condition		3.没办法中断wait操作</p>
+  </li>
+  <li>
+    <p>因此，还有一个java.util.concurrent.locks.Lock等着我们后面去分析</p>
+  </li>
+</ul>
+
+
+  </article>
+
+</div>
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+	<div class="info">
+      		<ul>
+			<li>转载请注明出处<a class="this-link" href="http://moonfacex.github.io/moonface.github.io/java/2016/03/31/synchronized_and_monitor.html">http://moonfacex.github.io/moonface.github.io/java/2016/03/31/synchronized_and_monitor.html</a></li>
+        		<li>如有疑问，可以微博私信我或者发邮件给我</li>
+      		</ul>
+    	</div>
+    
+    <div class="footer-col-1 column">
+      <ul>
+        <li>MoonfaceX</li>
+        <li><a href="mailto:mr.moonfacex@gmail.com">mr.moonfacex@gmail.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/MoonfaceX/moonface.github.io">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username"></span>
+          </a>
+        </li>
+        <li>
+	  <a href="http://weibo.com/u/1005421853"
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username"></span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+      <p class="text">You'll never walk alone.</p>
+    </div>
+
+  </div>
+
+</footer>
+
+
+    </body>
+</html>
