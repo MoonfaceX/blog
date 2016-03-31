@@ -4,10 +4,10 @@
   <head>
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <title>Moonface Space</title>
+    <title>自动装箱与拆箱</title>
     <meta name="viewport" content="width=device-width">
     <meta name="description" content="You'll never walk alone.">
-    <link rel="canonical" href="http://moonfacex.github.io/moonface.github.io/">
+    <link rel="canonical" href="http://moonfacex.github.io/moonface.github.io/java/2016/03/31/boxing-and-unboxing.html">
 
     <!-- Custom CSS -->
     <link rel="stylesheet" href="http://moonfacex.github.io/moonface.github.io/css/main.css">
@@ -53,43 +53,56 @@
 
     <div class="page-content">
       <div class="wrap">
-      <div class="home">
+      <div class="post">
 
-  <h1>Posts</h1>
+  <header class="post-header">
+    <h1>自动装箱与拆箱</h1>
+    <p class="meta">Mar 31, 2016</p>
+  </header>
 
-  <ul class="posts">
-    
-      <li>
-        <span class="post-date">Mar 31, 2016</span>
-        <a class="post-link" href="http://moonfacex.github.io/moonface.github.io/java/2016/03/31/boxing-and-unboxing.html">自动装箱与拆箱</a>
-      </li>
-    
-      <li>
-        <span class="post-date">Mar 31, 2016</span>
-        <a class="post-link" href="http://moonfacex.github.io/moonface.github.io/java/2016/03/31/synchronized_and_monitor.html">synchronized 与 object's Monitor</a>
-      </li>
-    
-      <li>
-        <span class="post-date">Mar 31, 2016</span>
-        <a class="post-link" href="http://moonfacex.github.io/moonface.github.io/java/2016/03/31/something_about_thread.html">java线程简述</a>
-      </li>
-    
-      <li>
-        <span class="post-date">Mar 30, 2016</span>
-        <a class="post-link" href="http://moonfacex.github.io/moonface.github.io/java/2016/03/30/java-class-load-order.html">java类的初始化顺序</a>
-      </li>
-    
-      <li>
-        <span class="post-date">Mar 30, 2016</span>
-        <a class="post-link" href="http://moonfacex.github.io/moonface.github.io/others/2016/03/30/start.html">Welcome to Moonface Space!</a>
-      </li>
-    
-  </ul>
+  <article class="post-content">
+  <p>进入Locks研究之前，先看一段有趣的代码</p>
 
-  <!-- <p class="rss-subscribe">subscribe <a href="http://moonfacex.github.io/moonface.github.io/feed.xml">via RSS</a></p> -->
+<div class="highlight"><pre><code class="java"><span class="lineno"> 1</span> <span class="kd">public</span> <span class="kd">static</span> <span class="kt">void</span> <span class="nf">main</span><span class="o">(</span><span class="n">String</span><span class="o">[]</span> <span class="n">args</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno"> 2</span>         <span class="n">Integer</span> <span class="n">a</span> <span class="o">=</span> <span class="mi">1</span><span class="o">;</span>
+<span class="lineno"> 3</span>         <span class="n">Integer</span> <span class="n">b</span> <span class="o">=</span> <span class="mi">2</span><span class="o">;</span>
+<span class="lineno"> 4</span>         <span class="n">Integer</span> <span class="n">c</span> <span class="o">=</span> <span class="mi">3</span><span class="o">;</span>
+<span class="lineno"> 5</span>         <span class="n">Integer</span> <span class="n">d</span> <span class="o">=</span> <span class="mi">3</span><span class="o">;</span>
+<span class="lineno"> 6</span>         <span class="n">Integer</span> <span class="n">e</span> <span class="o">=</span> <span class="mi">321</span><span class="o">;</span>
+<span class="lineno"> 7</span>         <span class="n">Integer</span> <span class="n">f</span> <span class="o">=</span> <span class="mi">321</span><span class="o">;</span>
+<span class="lineno"> 8</span>         <span class="n">Long</span> <span class="n">g</span> <span class="o">=</span> <span class="mi">3L</span><span class="o">;</span>
+<span class="lineno"> 9</span>         <span class="n">System</span><span class="o">.</span><span class="na">out</span><span class="o">.</span><span class="na">println</span><span class="o">(</span><span class="n">c</span> <span class="o">==</span> <span class="n">d</span><span class="o">);</span>
+<span class="lineno">10</span>         <span class="n">System</span><span class="o">.</span><span class="na">out</span><span class="o">.</span><span class="na">println</span><span class="o">(</span><span class="n">e</span> <span class="o">==</span> <span class="n">f</span><span class="o">);</span>
+<span class="lineno">11</span>         <span class="n">System</span><span class="o">.</span><span class="na">out</span><span class="o">.</span><span class="na">println</span><span class="o">(</span><span class="n">c</span> <span class="o">==</span> <span class="o">(</span><span class="n">a</span><span class="o">+</span><span class="n">b</span><span class="o">));</span>
+<span class="lineno">12</span>         <span class="n">System</span><span class="o">.</span><span class="na">out</span><span class="o">.</span><span class="na">println</span><span class="o">(</span><span class="n">c</span><span class="o">.</span><span class="na">equals</span><span class="o">(</span><span class="n">a</span><span class="o">+</span><span class="n">b</span><span class="o">));</span>
+<span class="lineno">13</span>         <span class="n">System</span><span class="o">.</span><span class="na">out</span><span class="o">.</span><span class="na">println</span><span class="o">(</span><span class="n">g</span> <span class="o">==</span> <span class="o">(</span><span class="n">a</span><span class="o">+</span><span class="n">b</span><span class="o">));</span>
+<span class="lineno">14</span>         <span class="n">System</span><span class="o">.</span><span class="na">out</span><span class="o">.</span><span class="na">println</span><span class="o">(</span><span class="n">g</span><span class="o">.</span><span class="na">equals</span><span class="o">(</span><span class="n">a</span><span class="o">+</span><span class="n">b</span><span class="o">));</span>
+<span class="lineno">15</span>     <span class="o">}</span></code></pre></div>
+
+<p>你猜我知不知道结果？ 哼哼，还是直接给一个总结吧：</p>
+
+<ul>
+  <li>
+    <p>AutoBoxing： 将primitive type转换成wrapper class</p>
+  </li>
+  <li>
+    <p>Unboxing：反之</p>
+  </li>
+  <li>
+    <p>Integer a = 1     &lt;–编译–&gt;   Integer a = Integer.valueOf(1)</p>
+  </li>
+  <li>
+    <p>做运算操作时会拆箱， == 的时候再装箱</p>
+  </li>
+  <li>
+    <p>-128 – 127 之间的字面量，无论是Long 还是 Short 还是 Integer， 编译完后会放入全局的常量池而不是在运行时在堆上去new， 这些变量会引用常量池中的地址</p>
+  </li>
+</ul>
+
+
+  </article>
 
 </div>
-
       </div>
     </div>
 
@@ -98,7 +111,7 @@
   <div class="wrap">
 	<div class="info">
       		<ul>
-			<li>转载请注明出处<a class="this-link" href="http://moonfacex.github.io/moonface.github.io/index.html">http://moonfacex.github.io/moonface.github.io/index.html</a></li>
+			<li>转载请注明出处<a class="this-link" href="http://moonfacex.github.io/moonface.github.io/java/2016/03/31/boxing-and-unboxing.html">http://moonfacex.github.io/moonface.github.io/java/2016/03/31/boxing-and-unboxing.html</a></li>
         		<li>如有疑问，可以微博私信我或者发邮件给我</li>
       		</ul>
     	</div>
