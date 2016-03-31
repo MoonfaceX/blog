@@ -7,7 +7,7 @@
     <atom:link href="http://moonfacex.github.io/moonface.github.io/feed.xml" rel="self" type="application/rss+xml" />
     
       <item>
-        <title>synchronized与object's monitor</title>
+        <title>synchronized 与 object's Monitor</title>
         <description>&lt;p&gt;synchronized应该是我们最早接触到的java中同步的方法了， 大致有这么几种用法：&lt;/p&gt;
 
 &lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;java&quot;&gt;&lt;span class=&quot;lineno&quot;&gt; 1&lt;/span&gt; &lt;span class=&quot;kd&quot;&gt;public&lt;/span&gt; &lt;span class=&quot;kd&quot;&gt;class&lt;/span&gt; &lt;span class=&quot;nc&quot;&gt;SuperClass&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;
@@ -224,7 +224,7 @@
 还是wiki了一下&lt;a href=&quot;https://en.wikipedia.org/wiki/Monitor_%28synchronization%29&quot;&gt;https://en.wikipedia.org/wiki/Monitor_%28synchronization%29&lt;/a&gt;&lt;br /&gt;
 可以通过我们学过的操作系统中的mutex和semaphore来实现，前者保证同步，后者保证互斥，这两者都需要硬件来支持原子性的操作&lt;/p&gt;
 
-&lt;p&gt;下面来看看mutex如何实现monitor的condition的功能的&lt;/p&gt;
+&lt;p&gt;下面来看看mutex如何实现monitor的condition的功能的:&lt;/p&gt;
 
 &lt;ol&gt;
   &lt;li&gt;
@@ -267,7 +267,12 @@
     &lt;p&gt;如何实现condition，本质上wait是对锁的释放并把自己放入等待队列， signal就是去等待队列中唤醒一个线程， 等当前线程把锁释放后，那个线程就可以获得这个锁了&lt;/p&gt;
   &lt;/li&gt;
   &lt;li&gt;
-    &lt;p&gt;回到java层面， object’s monitor可以做到上面一系列操作， 但是缺点也很明显:1.没办法实现非公平锁		2.一个锁没办法使用多个condition		3.没办法中断wait操作&lt;/p&gt;
+    &lt;p&gt;回到java层面， object’s monitor可以做到上面一系列操作， 但是缺点也很明显:&lt;/p&gt;
+
+    &lt;pre&gt;&lt;code&gt;1.没办法实现非公平锁				
+2.一个锁没办法使用多个condition		  
+3.没办法中断wait操作  
+&lt;/code&gt;&lt;/pre&gt;
   &lt;/li&gt;
   &lt;li&gt;
     &lt;p&gt;因此，还有一个java.util.concurrent.locks.Lock等着我们后面去分析&lt;/p&gt;

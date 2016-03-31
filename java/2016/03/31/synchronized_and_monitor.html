@@ -4,7 +4,7 @@
   <head>
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <title>synchronized与object's monitor</title>
+    <title>synchronized 与 object's Monitor</title>
     <meta name="viewport" content="width=device-width">
     <meta name="description" content="You'll never walk alone.">
     <link rel="canonical" href="http://moonfacex.github.io/moonface.github.io/java/2016/03/31/synchronized_and_monitor.html">
@@ -56,7 +56,7 @@
       <div class="post">
 
   <header class="post-header">
-    <h1>synchronized与object's monitor</h1>
+    <h1>synchronized 与 object's Monitor</h1>
     <p class="meta">Mar 31, 2016</p>
   </header>
 
@@ -277,7 +277,7 @@
 还是wiki了一下<a href="https://en.wikipedia.org/wiki/Monitor_%28synchronization%29">https://en.wikipedia.org/wiki/Monitor_%28synchronization%29</a><br />
 可以通过我们学过的操作系统中的mutex和semaphore来实现，前者保证同步，后者保证互斥，这两者都需要硬件来支持原子性的操作</p>
 
-<p>下面来看看mutex如何实现monitor的condition的功能的</p>
+<p>下面来看看mutex如何实现monitor的condition的功能的:</p>
 
 <ol>
   <li>
@@ -320,7 +320,12 @@
     <p>如何实现condition，本质上wait是对锁的释放并把自己放入等待队列， signal就是去等待队列中唤醒一个线程， 等当前线程把锁释放后，那个线程就可以获得这个锁了</p>
   </li>
   <li>
-    <p>回到java层面， object’s monitor可以做到上面一系列操作， 但是缺点也很明显:1.没办法实现非公平锁		2.一个锁没办法使用多个condition		3.没办法中断wait操作</p>
+    <p>回到java层面， object’s monitor可以做到上面一系列操作， 但是缺点也很明显:</p>
+
+    <pre><code>1.没办法实现非公平锁				
+2.一个锁没办法使用多个condition		  
+3.没办法中断wait操作  
+</code></pre>
   </li>
   <li>
     <p>因此，还有一个java.util.concurrent.locks.Lock等着我们后面去分析</p>
