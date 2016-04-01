@@ -3,8 +3,17 @@
   <channel>
     <title>Moonface Space</title>
     <description>You'll never walk alone.</description>
-    <link>http://moonfacex.github.io/moonface.github.io</link>
-    <atom:link href="http://moonfacex.github.io/moonface.github.io/feed.xml" rel="self" type="application/rss+xml" />
+    <link>http://moonfacex.github.io/blog</link>
+    <atom:link href="http://moonfacex.github.io/blog/feed.xml" rel="self" type="application/rss+xml" />
+    
+      <item>
+        <title>从AutomicInteger开始</title>
+        <description>&lt;p&gt;正式开始研究java.util.concurrent了，那最好就是从AtomicInteger开始咯&lt;/p&gt;
+</description>
+        <pubDate>Sat, 02 Apr 2016 02:04:47 +0800</pubDate>
+        <link>http://moonfacex.github.io/blog/java/2016/04/02/atomicinteger.html</link>
+        <guid isPermaLink="true">http://moonfacex.github.io/blog/java/2016/04/02/atomicinteger.html</guid>
+      </item>
     
       <item>
         <title>mLeft mScrollX translationX 傻傻分不清楚</title>
@@ -482,8 +491,8 @@ executing application code on every frame, and is thus much more efficient.
 
 </description>
         <pubDate>Fri, 01 Apr 2016 23:04:47 +0800</pubDate>
-        <link>http://moonfacex.github.io/moonface.github.io/android/2016/04/01/mLeft_mScrollX_translationX.html</link>
-        <guid isPermaLink="true">http://moonfacex.github.io/moonface.github.io/android/2016/04/01/mLeft_mScrollX_translationX.html</guid>
+        <link>http://moonfacex.github.io/blog/android/2016/04/01/mLeft_mScrollX_translationX.html</link>
+        <guid isPermaLink="true">http://moonfacex.github.io/blog/android/2016/04/01/mLeft_mScrollX_translationX.html</guid>
       </item>
     
       <item>
@@ -769,8 +778,8 @@ executing application code on every frame, and is thus much more efficient.
 因为在Android，主要矛盾还是内存的占用，HashMap内部维护的链表占用的内存开销更大，而前两者只用数组就解决了空间问题， 当然了，SparseArray还没有自动装箱拆箱的损耗， 因此，以后在Android中用到map， 我会尽量使用这样的数据结构而避免使用HashMap了&lt;/p&gt;
 </description>
         <pubDate>Fri, 01 Apr 2016 16:55:47 +0800</pubDate>
-        <link>http://moonfacex.github.io/moonface.github.io/android/2016/04/01/sparsearray_and_arraymap.html</link>
-        <guid isPermaLink="true">http://moonfacex.github.io/moonface.github.io/android/2016/04/01/sparsearray_and_arraymap.html</guid>
+        <link>http://moonfacex.github.io/blog/android/2016/04/01/sparsearray_and_arraymap.html</link>
+        <guid isPermaLink="true">http://moonfacex.github.io/blog/android/2016/04/01/sparsearray_and_arraymap.html</guid>
       </item>
     
       <item>
@@ -815,8 +824,8 @@ executing application code on every frame, and is thus much more efficient.
 
 </description>
         <pubDate>Thu, 31 Mar 2016 23:10:47 +0800</pubDate>
-        <link>http://moonfacex.github.io/moonface.github.io/java/2016/03/31/boxing_and_unboxing.html</link>
-        <guid isPermaLink="true">http://moonfacex.github.io/moonface.github.io/java/2016/03/31/boxing_and_unboxing.html</guid>
+        <link>http://moonfacex.github.io/blog/java/2016/03/31/boxing_and_unboxing.html</link>
+        <guid isPermaLink="true">http://moonfacex.github.io/blog/java/2016/03/31/boxing_and_unboxing.html</guid>
       </item>
     
       <item>
@@ -1094,8 +1103,8 @@ executing application code on every frame, and is thus much more efficient.
 
 </description>
         <pubDate>Thu, 31 Mar 2016 17:38:47 +0800</pubDate>
-        <link>http://moonfacex.github.io/moonface.github.io/java/2016/03/31/synchronized_and_monitor.html</link>
-        <guid isPermaLink="true">http://moonfacex.github.io/moonface.github.io/java/2016/03/31/synchronized_and_monitor.html</guid>
+        <link>http://moonfacex.github.io/blog/java/2016/03/31/synchronized_and_monitor.html</link>
+        <guid isPermaLink="true">http://moonfacex.github.io/blog/java/2016/03/31/synchronized_and_monitor.html</guid>
       </item>
     
       <item>
@@ -1364,8 +1373,8 @@ executing application code on every frame, and is thus much more efficient.
 
 </description>
         <pubDate>Thu, 31 Mar 2016 06:17:47 +0800</pubDate>
-        <link>http://moonfacex.github.io/moonface.github.io/java/2016/03/31/something_about_thread.html</link>
-        <guid isPermaLink="true">http://moonfacex.github.io/moonface.github.io/java/2016/03/31/something_about_thread.html</guid>
+        <link>http://moonfacex.github.io/blog/java/2016/03/31/something_about_thread.html</link>
+        <guid isPermaLink="true">http://moonfacex.github.io/blog/java/2016/03/31/something_about_thread.html</guid>
       </item>
     
       <item>
@@ -1577,8 +1586,8 @@ kk = hehe&lt;/p&gt;
 
 </description>
         <pubDate>Wed, 30 Mar 2016 21:45:47 +0800</pubDate>
-        <link>http://moonfacex.github.io/moonface.github.io/java/2016/03/30/java_class_load_order.html</link>
-        <guid isPermaLink="true">http://moonfacex.github.io/moonface.github.io/java/2016/03/30/java_class_load_order.html</guid>
+        <link>http://moonfacex.github.io/blog/java/2016/03/30/java_class_load_order.html</link>
+        <guid isPermaLink="true">http://moonfacex.github.io/blog/java/2016/03/30/java_class_load_order.html</guid>
       </item>
     
       <item>
@@ -1598,8 +1607,8 @@ kk = hehe&lt;/p&gt;
 
 </description>
         <pubDate>Wed, 30 Mar 2016 18:29:47 +0800</pubDate>
-        <link>http://moonfacex.github.io/moonface.github.io/others/2016/03/30/start.html</link>
-        <guid isPermaLink="true">http://moonfacex.github.io/moonface.github.io/others/2016/03/30/start.html</guid>
+        <link>http://moonfacex.github.io/blog/others/2016/03/30/start.html</link>
+        <guid isPermaLink="true">http://moonfacex.github.io/blog/others/2016/03/30/start.html</guid>
       </item>
     
   </channel>
