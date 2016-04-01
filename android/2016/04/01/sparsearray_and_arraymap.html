@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>买一送一：SparseArray & ArrayMap</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="You'll never walk alone.">
+    <link rel="canonical" href="http://moonfacex.github.io/moonface.github.io/android/2016/04/01/sparsearray_and_arraymap.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="http://moonfacex.github.io/moonface.github.io/css/main.css">
+
+</head>
+
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="http://moonfacex.github.io/moonface.github.io">Moonface Space</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+        
+          <a class="page-link" href="http://moonfacex.github.io/moonface.github.io/about/">About</a>
+        
+          <a class="page-link" href="http://moonfacex.github.io/moonface.github.io/feed.xml"></a>
+        
+          <a class="page-link" href="http://moonfacex.github.io/moonface.github.io/index.html"></a>
+        
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>买一送一：SparseArray & ArrayMap</h1>
+    <p class="meta">Apr 1, 2016</p>
+  </header>
+
+  <article class="post-content">
+  <p>现在在用Android Studio时， 使用HashMap的时候，都会提示hint说可以用SparseArray替代了<br />
+什么是SparseArray？反正我搜了一下国内的blog，基本没有把它说清楚的，更有甚者竟然和稀疏矩阵关联起来了，简直不知所云<br />
+个么只有自己来倒腾一下了：</p>
+
+<div class="highlight"><pre><code class="java"><span class="lineno"> 1</span> <span class="kd">public</span> <span class="kd">class</span> <span class="nc">SparseArray</span><span class="o">&lt;</span><span class="n">E</span><span class="o">&gt;</span> <span class="kd">implements</span> <span class="n">Cloneable</span> <span class="o">{</span>
+<span class="lineno"> 2</span>     <span class="kd">private</span> <span class="kd">static</span> <span class="kd">final</span> <span class="n">Object</span> <span class="n">DELETED</span> <span class="o">=</span> <span class="k">new</span> <span class="n">Object</span><span class="o">();</span>
+<span class="lineno"> 3</span>     <span class="kd">private</span> <span class="kt">boolean</span> <span class="n">mGarbage</span> <span class="o">=</span> <span class="kc">false</span><span class="o">;</span>
+<span class="lineno"> 4</span> 
+<span class="lineno"> 5</span>     <span class="kd">private</span> <span class="kt">int</span><span class="o">[]</span> <span class="n">mKeys</span><span class="o">;</span>
+<span class="lineno"> 6</span>     <span class="kd">private</span> <span class="n">Object</span><span class="o">[]</span> <span class="n">mValues</span><span class="o">;</span>
+<span class="lineno"> 7</span>     <span class="kd">private</span> <span class="kt">int</span> <span class="n">mSize</span><span class="o">;</span>
+<span class="lineno"> 8</span> 
+<span class="lineno"> 9</span>     <span class="cm">/**</span>
+<span class="lineno">10</span> <span class="cm">     * Creates a new SparseArray containing no mappings.</span>
+<span class="lineno">11</span> <span class="cm">     */</span>
+<span class="lineno">12</span>     <span class="kd">public</span> <span class="nf">SparseArray</span><span class="o">()</span> <span class="o">{</span>
+<span class="lineno">13</span>         <span class="k">this</span><span class="o">(</span><span class="mi">10</span><span class="o">);</span>
+<span class="lineno">14</span>     <span class="o">}</span>
+<span class="lineno">15</span> 
+<span class="lineno">16</span>     <span class="cm">/**</span>
+<span class="lineno">17</span> <span class="cm">     * Creates a new SparseArray containing no mappings that will not</span>
+<span class="lineno">18</span> <span class="cm">     * require any additional memory allocation to store the specified</span>
+<span class="lineno">19</span> <span class="cm">     * number of mappings.  If you supply an initial capacity of 0, the</span>
+<span class="lineno">20</span> <span class="cm">     * sparse array will be initialized with a light-weight representation</span>
+<span class="lineno">21</span> <span class="cm">     * not requiring any additional array allocations.</span>
+<span class="lineno">22</span> <span class="cm">     */</span>
+<span class="lineno">23</span>     <span class="kd">public</span> <span class="nf">SparseArray</span><span class="o">(</span><span class="kt">int</span> <span class="n">initialCapacity</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno">24</span>         <span class="k">if</span> <span class="o">(</span><span class="n">initialCapacity</span> <span class="o">==</span> <span class="mi">0</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno">25</span>             <span class="n">mKeys</span> <span class="o">=</span> <span class="n">EmptyArray</span><span class="o">.</span><span class="na">INT</span><span class="o">;</span>
+<span class="lineno">26</span>             <span class="n">mValues</span> <span class="o">=</span> <span class="n">EmptyArray</span><span class="o">.</span><span class="na">OBJECT</span><span class="o">;</span>
+<span class="lineno">27</span>         <span class="o">}</span> <span class="k">else</span> <span class="o">{</span>
+<span class="lineno">28</span>             <span class="n">mValues</span> <span class="o">=</span> <span class="n">ArrayUtils</span><span class="o">.</span><span class="na">newUnpaddedObjectArray</span><span class="o">(</span><span class="n">initialCapacity</span><span class="o">);</span>
+<span class="lineno">29</span>             <span class="n">mKeys</span> <span class="o">=</span> <span class="k">new</span> <span class="kt">int</span><span class="o">[</span><span class="n">mValues</span><span class="o">.</span><span class="na">length</span><span class="o">];</span>
+<span class="lineno">30</span>         <span class="o">}</span>
+<span class="lineno">31</span>         <span class="n">mSize</span> <span class="o">=</span> <span class="mi">0</span><span class="o">;</span>
+<span class="lineno">32</span>     <span class="o">}</span>
+<span class="lineno">33</span> 
+<span class="lineno">34</span>     <span class="c1">// blahblah.......</span>
+<span class="lineno">35</span> <span class="o">}</span></code></pre></div>
+
+<p>稍微解释一下一些关键的成员变量：</p>
+
+<ul>
+  <li>
+    <p>DELETED		一个删除标记</p>
+  </li>
+  <li>
+    <p>mGarbage	是否需要gc</p>
+  </li>
+  <li>
+    <p>mKeys		存放key的int数组</p>
+  </li>
+  <li>
+    <p>mValues		存放具体value的数组</p>
+  </li>
+  <li>
+    <p>mSize		记录当前存了多少内容</p>
+  </li>
+</ul>
+
+<p>这么看来， 这个SparseArray只不过是两个数组分别用来存key和value嘛， 继续看put：</p>
+
+<div class="highlight"><pre><code class="java"><span class="lineno"> 1</span> <span class="kd">public</span> <span class="kt">void</span> <span class="nf">put</span><span class="o">(</span><span class="kt">int</span> <span class="n">key</span><span class="o">,</span> <span class="n">E</span> <span class="n">value</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno"> 2</span> 		
+<span class="lineno"> 3</span> 		<span class="c1">// 将在mKeys的 0 到 mSize 的区间内查找 key 的下标, 也就是key所在的index</span>
+<span class="lineno"> 4</span>         <span class="kt">int</span> <span class="n">i</span> <span class="o">=</span> <span class="n">ContainerHelpers</span><span class="o">.</span><span class="na">binarySearch</span><span class="o">(</span><span class="n">mKeys</span><span class="o">,</span> <span class="n">mSize</span><span class="o">,</span> <span class="n">key</span><span class="o">);</span>	
+<span class="lineno"> 5</span> 
+<span class="lineno"> 6</span>         <span class="c1">// mKeys中0-mSize中存在这个key， 说明之前已经存过， 直接更改mValues对应下标的内容，</span>
+<span class="lineno"> 7</span>         <span class="c1">// 这样看来， mValues和mKeys是一一对应的</span>
+<span class="lineno"> 8</span>         <span class="k">if</span> <span class="o">(</span><span class="n">i</span> <span class="o">&gt;=</span> <span class="mi">0</span><span class="o">)</span> <span class="o">{</span>	
+<span class="lineno"> 9</span>             <span class="n">mValues</span><span class="o">[</span><span class="n">i</span><span class="o">]</span> <span class="o">=</span> <span class="n">value</span><span class="o">;</span>
+<span class="lineno">10</span>         <span class="o">}</span> <span class="k">else</span> <span class="o">{</span> <span class="c1">// 二分找不到， 就会返回一个负的下标， 代表比要找的数小的第一个数的index*-1</span>
+<span class="lineno">11</span>             <span class="n">i</span> <span class="o">=</span> <span class="o">~</span><span class="n">i</span><span class="o">;</span>		<span class="c1">// 取反就是正的index了</span>
+<span class="lineno">12</span> 
+<span class="lineno">13</span>             <span class="c1">// 如果这个index中的值失效则把这个index换成当前要存的内容(both key and value)</span>
+<span class="lineno">14</span>             <span class="k">if</span> <span class="o">(</span><span class="n">i</span> <span class="o">&lt;</span> <span class="n">mSize</span> <span class="o">&amp;&amp;</span> <span class="n">mValues</span><span class="o">[</span><span class="n">i</span><span class="o">]</span> <span class="o">==</span> <span class="n">DELETED</span><span class="o">)</span> <span class="o">{</span>	  
+<span class="lineno">15</span>                 <span class="n">mKeys</span><span class="o">[</span><span class="n">i</span><span class="o">]</span> <span class="o">=</span> <span class="n">key</span><span class="o">;</span>
+<span class="lineno">16</span>                 <span class="n">mValues</span><span class="o">[</span><span class="n">i</span><span class="o">]</span> <span class="o">=</span> <span class="n">value</span><span class="o">;</span>
+<span class="lineno">17</span>                 <span class="k">return</span><span class="o">;</span>
+<span class="lineno">18</span>             <span class="o">}</span>
+<span class="lineno">19</span>             <span class="c1">// 如果需要gc，并且数组的容量已经无法放下一个新的值</span>
+<span class="lineno">20</span>             <span class="k">if</span> <span class="o">(</span><span class="n">mGarbage</span> <span class="o">&amp;&amp;</span> <span class="n">mSize</span> <span class="o">&gt;=</span> <span class="n">mKeys</span><span class="o">.</span><span class="na">length</span><span class="o">)</span> <span class="o">{</span>	
+<span class="lineno">21</span>             	<span class="c1">// gc主要就是调整两个数组，将被删除的元素清空，使得数组内容是紧凑的</span>
+<span class="lineno">22</span>                 <span class="n">gc</span><span class="o">();</span>	
+<span class="lineno">23</span> 
+<span class="lineno">24</span>                 <span class="c1">// Search again because indices may have changed. 再找一遍</span>
+<span class="lineno">25</span>                 <span class="n">i</span> <span class="o">=</span> <span class="o">~</span><span class="n">ContainerHelpers</span><span class="o">.</span><span class="na">binarySearch</span><span class="o">(</span><span class="n">mKeys</span><span class="o">,</span> <span class="n">mSize</span><span class="o">,</span> <span class="n">key</span><span class="o">);</span>
+<span class="lineno">26</span>             <span class="o">}</span>
+<span class="lineno">27</span> 
+<span class="lineno">28</span>             <span class="n">mKeys</span> <span class="o">=</span> <span class="n">GrowingArrayUtils</span><span class="o">.</span><span class="na">insert</span><span class="o">(</span><span class="n">mKeys</span><span class="o">,</span> <span class="n">mSize</span><span class="o">,</span> <span class="n">i</span><span class="o">,</span> <span class="n">key</span><span class="o">);</span>	<span class="c1">// 插入！</span>
+<span class="lineno">29</span>             <span class="n">mValues</span> <span class="o">=</span> <span class="n">GrowingArrayUtils</span><span class="o">.</span><span class="na">insert</span><span class="o">(</span><span class="n">mValues</span><span class="o">,</span> <span class="n">mSize</span><span class="o">,</span> <span class="n">i</span><span class="o">,</span> <span class="n">value</span><span class="o">);</span>
+<span class="lineno">30</span>             <span class="n">mSize</span><span class="o">++;</span>	
+<span class="lineno">31</span>         <span class="o">}</span>
+<span class="lineno">32</span>     <span class="o">}</span></code></pre></div>
+
+<p>顺带提一下mGarbage， 当做remove或者是clear等操作时， 这个boolean会设成true， 说明有元素被标记为DELETED了， 这时就需要重新调整结构</p>
+
+<p>想必过程已经很清楚了吧，我还不会画图，就先看注释理解好了</p>
+
+<p>再来看get()就很轻松了：</p>
+
+<div class="highlight"><pre><code class="java"><span class="lineno"> 1</span> <span class="kd">public</span> <span class="n">E</span> <span class="nf">get</span><span class="o">(</span><span class="kt">int</span> <span class="n">key</span><span class="o">,</span> <span class="n">E</span> <span class="n">valueIfKeyNotFound</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno"> 2</span>         
+<span class="lineno"> 3</span>         <span class="c1">// 还是找key的index</span>
+<span class="lineno"> 4</span>         <span class="kt">int</span> <span class="n">i</span> <span class="o">=</span> <span class="n">ContainerHelpers</span><span class="o">.</span><span class="na">binarySearch</span><span class="o">(</span><span class="n">mKeys</span><span class="o">,</span> <span class="n">mSize</span><span class="o">,</span> <span class="n">key</span><span class="o">);</span>
+<span class="lineno"> 5</span>         <span class="c1">// 如果没有或者被删了</span>
+<span class="lineno"> 6</span>         <span class="k">if</span> <span class="o">(</span><span class="n">i</span> <span class="o">&lt;</span> <span class="mi">0</span> <span class="o">||</span> <span class="n">mValues</span><span class="o">[</span><span class="n">i</span><span class="o">]</span> <span class="o">==</span> <span class="n">DELETED</span><span class="o">)</span> <span class="o">{</span>	
+<span class="lineno"> 7</span>             <span class="k">return</span> <span class="n">valueIfKeyNotFound</span><span class="o">;</span>
+<span class="lineno"> 8</span>         <span class="o">}</span> <span class="k">else</span> <span class="o">{</span> <span class="c1">// 返回mValues中index对应的值</span>
+<span class="lineno"> 9</span>             <span class="k">return</span> <span class="o">(</span><span class="n">E</span><span class="o">)</span> <span class="n">mValues</span><span class="o">[</span><span class="n">i</span><span class="o">];</span>		
+<span class="lineno">10</span>         <span class="o">}</span>
+<span class="lineno">11</span>     <span class="o">}</span></code></pre></div>
+
+<p>这下全清楚了，所以为什叫SparseArray， 因为key的值是离散的，但是key的index要是连续的</p>
+
+<h2 id="arraymap"><em>ArrayMap</em></h2>
+<p>SparseArray的key只能是int，但是这个局限性太大了，因此有了ArrayMap，这个就复杂多了，大致讲一下框架吧：</p>
+
+<div class="highlight"><pre><code class="java"><span class="lineno"> 1</span> <span class="kd">public</span> <span class="kd">final</span> <span class="kd">class</span> <span class="nc">ArrayMap</span><span class="o">&lt;</span><span class="n">K</span><span class="o">,</span> <span class="n">V</span><span class="o">&gt;</span> <span class="kd">implements</span> <span class="n">Map</span><span class="o">&lt;</span><span class="n">K</span><span class="o">,</span> <span class="n">V</span><span class="o">&gt;</span> <span class="o">{</span>
+<span class="lineno"> 2</span>     <span class="kd">private</span> <span class="kd">static</span> <span class="kd">final</span> <span class="kt">boolean</span> <span class="n">DEBUG</span> <span class="o">=</span> <span class="kc">false</span><span class="o">;</span>
+<span class="lineno"> 3</span>     <span class="kd">private</span> <span class="kd">static</span> <span class="kd">final</span> <span class="n">String</span> <span class="n">TAG</span> <span class="o">=</span> <span class="s">&quot;ArrayMap&quot;</span><span class="o">;</span>
+<span class="lineno"> 4</span> 
+<span class="lineno"> 5</span>     <span class="cm">/**</span>
+<span class="lineno"> 6</span> <span class="cm">     * The minimum amount by which the capacity of a ArrayMap will increase.</span>
+<span class="lineno"> 7</span> <span class="cm">     * This is tuned to be relatively space-efficient.</span>
+<span class="lineno"> 8</span> <span class="cm">     */</span>
+<span class="lineno"> 9</span>     <span class="kd">private</span> <span class="kd">static</span> <span class="kd">final</span> <span class="kt">int</span> <span class="n">BASE_SIZE</span> <span class="o">=</span> <span class="mi">4</span><span class="o">;</span>
+<span class="lineno">10</span> 
+<span class="lineno">11</span>     <span class="cm">/**</span>
+<span class="lineno">12</span> <span class="cm">     * Maximum number of entries to have in array caches.</span>
+<span class="lineno">13</span> <span class="cm">     */</span>
+<span class="lineno">14</span>     <span class="kd">private</span> <span class="kd">static</span> <span class="kd">final</span> <span class="kt">int</span> <span class="n">CACHE_SIZE</span> <span class="o">=</span> <span class="mi">10</span><span class="o">;</span>
+<span class="lineno">15</span> 
+<span class="lineno">16</span>     <span class="cm">/**</span>
+<span class="lineno">17</span> <span class="cm">     * @hide Special immutable empty ArrayMap.</span>
+<span class="lineno">18</span> <span class="cm">     */</span>
+<span class="lineno">19</span>     <span class="kd">public</span> <span class="kd">static</span> <span class="kd">final</span> <span class="n">ArrayMap</span> <span class="n">EMPTY</span> <span class="o">=</span> <span class="k">new</span> <span class="n">ArrayMap</span><span class="o">(</span><span class="kc">true</span><span class="o">);</span>
+<span class="lineno">20</span> 
+<span class="lineno">21</span>     <span class="cm">/**</span>
+<span class="lineno">22</span> <span class="cm">     * Caches of small array objects to avoid spamming garbage.  The cache</span>
+<span class="lineno">23</span> <span class="cm">     * Object[] variable is a pointer to a linked list of array objects.</span>
+<span class="lineno">24</span> <span class="cm">     * The first entry in the array is a pointer to the next array in the</span>
+<span class="lineno">25</span> <span class="cm">     * list; the second entry is a pointer to the int[] hash code array for it.</span>
+<span class="lineno">26</span> <span class="cm">     */</span>
+<span class="lineno">27</span>     <span class="kd">static</span> <span class="n">Object</span><span class="o">[]</span> <span class="n">mBaseCache</span><span class="o">;</span>
+<span class="lineno">28</span>     <span class="kd">static</span> <span class="kt">int</span> <span class="n">mBaseCacheSize</span><span class="o">;</span>
+<span class="lineno">29</span>     <span class="kd">static</span> <span class="n">Object</span><span class="o">[]</span> <span class="n">mTwiceBaseCache</span><span class="o">;</span>
+<span class="lineno">30</span>     <span class="kd">static</span> <span class="kt">int</span> <span class="n">mTwiceBaseCacheSize</span><span class="o">;</span>
+<span class="lineno">31</span> 
+<span class="lineno">32</span>     <span class="cm">/**</span>
+<span class="lineno">33</span> <span class="cm">     * Special hash array value that indicates the container is immutable.</span>
+<span class="lineno">34</span> <span class="cm">     */</span>
+<span class="lineno">35</span>     <span class="kd">static</span> <span class="kd">final</span> <span class="kt">int</span><span class="o">[]</span> <span class="n">EMPTY_IMMUTABLE_INTS</span> <span class="o">=</span> <span class="k">new</span> <span class="kt">int</span><span class="o">[</span><span class="mi">0</span><span class="o">];</span>
+<span class="lineno">36</span> 
+<span class="lineno">37</span>     <span class="kt">int</span><span class="o">[]</span> <span class="n">mHashes</span><span class="o">;</span>
+<span class="lineno">38</span>     <span class="n">Object</span><span class="o">[]</span> <span class="n">mArray</span><span class="o">;</span>
+<span class="lineno">39</span>     <span class="kt">int</span> <span class="n">mSize</span><span class="o">;</span>
+<span class="lineno">40</span>     <span class="c1">// blahblah...</span>
+<span class="lineno">41</span> <span class="o">}</span></code></pre></div>
+
+<p>不管上面的一陀， 先抓住重点， 数据结构就是倒数这几行<br />
+是不是有点熟悉， 是不是跟SparseArray有几分相似？<br />
+照例， put():</p>
+
+<div class="highlight"><pre><code class="java"><span class="lineno"> 1</span> <span class="nd">@Override</span>
+<span class="lineno"> 2</span>     <span class="kd">public</span> <span class="n">V</span> <span class="nf">put</span><span class="o">(</span><span class="n">K</span> <span class="n">key</span><span class="o">,</span> <span class="n">V</span> <span class="n">value</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno"> 3</span>         <span class="kd">final</span> <span class="kt">int</span> <span class="n">hash</span><span class="o">;</span>
+<span class="lineno"> 4</span>         <span class="kt">int</span> <span class="n">index</span><span class="o">;</span>
+<span class="lineno"> 5</span>         <span class="k">if</span> <span class="o">(</span><span class="n">key</span> <span class="o">==</span> <span class="kc">null</span><span class="o">)</span> <span class="o">{</span>	<span class="c1">// key可以为null，先不管了</span>
+<span class="lineno"> 6</span>             <span class="n">hash</span> <span class="o">=</span> <span class="mi">0</span><span class="o">;</span>
+<span class="lineno"> 7</span>             <span class="n">index</span> <span class="o">=</span> <span class="n">indexOfNull</span><span class="o">();</span>
+<span class="lineno"> 8</span>         <span class="o">}</span> <span class="k">else</span> <span class="o">{</span>
+<span class="lineno"> 9</span>             <span class="n">hash</span> <span class="o">=</span> <span class="n">key</span><span class="o">.</span><span class="na">hashCode</span><span class="o">();</span> <span class="c1">// 得到key的hash值</span>
+<span class="lineno">10</span>             <span class="n">index</span> <span class="o">=</span> <span class="n">indexOf</span><span class="o">(</span><span class="n">key</span><span class="o">,</span> <span class="n">hash</span><span class="o">);</span> <span class="c1">// 还是一样，找index</span>
+<span class="lineno">11</span>         <span class="o">}</span>
+<span class="lineno">12</span>         <span class="k">if</span> <span class="o">(</span><span class="n">index</span> <span class="o">&gt;=</span> <span class="mi">0</span><span class="o">)</span> <span class="o">{</span>  <span class="c1">// 说明之前存过啦</span>
+<span class="lineno">13</span>             <span class="n">index</span> <span class="o">=</span> <span class="o">(</span><span class="n">index</span><span class="o">&lt;&lt;</span><span class="mi">1</span><span class="o">)</span> <span class="o">+</span> <span class="mi">1</span><span class="o">;</span> <span class="c1">// 注意这里要将index*2+1</span>
+<span class="lineno">14</span>             <span class="kd">final</span> <span class="n">V</span> <span class="n">old</span> <span class="o">=</span> <span class="o">(</span><span class="n">V</span><span class="o">)</span><span class="n">mArray</span><span class="o">[</span><span class="n">index</span><span class="o">];</span> <span class="c1">// 更新value</span>
+<span class="lineno">15</span>             <span class="n">mArray</span><span class="o">[</span><span class="n">index</span><span class="o">]</span> <span class="o">=</span> <span class="n">value</span><span class="o">;</span>
+<span class="lineno">16</span>             <span class="k">return</span> <span class="n">old</span><span class="o">;</span>
+<span class="lineno">17</span>         <span class="o">}</span>
+<span class="lineno">18</span> 
+<span class="lineno">19</span>         <span class="n">index</span> <span class="o">=</span> <span class="o">~</span><span class="n">index</span><span class="o">;</span>	<span class="c1">// 找不到咯，那就取反咯</span>
+<span class="lineno">20</span>         <span class="k">if</span> <span class="o">(</span><span class="n">mSize</span> <span class="o">&gt;=</span> <span class="n">mHashes</span><span class="o">.</span><span class="na">length</span><span class="o">)</span> <span class="o">{</span> <span class="c1">// 不够用了</span>
+<span class="lineno">21</span>             <span class="kd">final</span> <span class="kt">int</span> <span class="n">n</span> <span class="o">=</span> <span class="n">mSize</span> <span class="o">&gt;=</span> <span class="o">(</span><span class="n">BASE_SIZE</span><span class="o">*</span><span class="mi">2</span><span class="o">)</span> <span class="o">?</span> <span class="o">(</span><span class="n">mSize</span><span class="o">+(</span><span class="n">mSize</span><span class="o">&gt;&gt;</span><span class="mi">1</span><span class="o">))</span>
+<span class="lineno">22</span>                     <span class="o">:</span> <span class="o">(</span><span class="n">mSize</span> <span class="o">&gt;=</span> <span class="n">BASE_SIZE</span> <span class="o">?</span> <span class="o">(</span><span class="n">BASE_SIZE</span><span class="o">*</span><span class="mi">2</span><span class="o">)</span> <span class="o">:</span> <span class="n">BASE_SIZE</span><span class="o">);</span>
+<span class="lineno">23</span> 
+<span class="lineno">24</span>             <span class="k">if</span> <span class="o">(</span><span class="n">DEBUG</span><span class="o">)</span> <span class="n">Log</span><span class="o">.</span><span class="na">d</span><span class="o">(</span><span class="n">TAG</span><span class="o">,</span> <span class="s">&quot;put: grow from &quot;</span> <span class="o">+</span> <span class="n">mHashes</span><span class="o">.</span><span class="na">length</span> <span class="o">+</span> <span class="s">&quot; to &quot;</span> <span class="o">+</span> <span class="n">n</span><span class="o">);</span>
+<span class="lineno">25</span> 
+<span class="lineno">26</span>             <span class="kd">final</span> <span class="kt">int</span><span class="o">[]</span> <span class="n">ohashes</span> <span class="o">=</span> <span class="n">mHashes</span><span class="o">;</span>
+<span class="lineno">27</span>             <span class="kd">final</span> <span class="n">Object</span><span class="o">[]</span> <span class="n">oarray</span> <span class="o">=</span> <span class="n">mArray</span><span class="o">;</span>
+<span class="lineno">28</span>             <span class="n">allocArrays</span><span class="o">(</span><span class="n">n</span><span class="o">);</span> <span class="c1">// 先缓存再堆分配</span>
+<span class="lineno">29</span> 
+<span class="lineno">30</span>             <span class="k">if</span> <span class="o">(</span><span class="n">mHashes</span><span class="o">.</span><span class="na">length</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno">31</span>                 <span class="k">if</span> <span class="o">(</span><span class="n">DEBUG</span><span class="o">)</span> <span class="n">Log</span><span class="o">.</span><span class="na">d</span><span class="o">(</span><span class="n">TAG</span><span class="o">,</span> <span class="s">&quot;put: copy 0-&quot;</span> <span class="o">+</span> <span class="n">mSize</span> <span class="o">+</span> <span class="s">&quot; to 0&quot;</span><span class="o">);</span>  
+<span class="lineno">32</span>                 <span class="c1">// 直接拷贝</span>
+<span class="lineno">33</span>                 <span class="n">System</span><span class="o">.</span><span class="na">arraycopy</span><span class="o">(</span><span class="n">ohashes</span><span class="o">,</span> <span class="mi">0</span><span class="o">,</span> <span class="n">mHashes</span><span class="o">,</span> <span class="mi">0</span><span class="o">,</span> <span class="n">ohashes</span><span class="o">.</span><span class="na">length</span><span class="o">);</span>
+<span class="lineno">34</span>                 <span class="n">System</span><span class="o">.</span><span class="na">arraycopy</span><span class="o">(</span><span class="n">oarray</span><span class="o">,</span> <span class="mi">0</span><span class="o">,</span> <span class="n">mArray</span><span class="o">,</span> <span class="mi">0</span><span class="o">,</span> <span class="n">oarray</span><span class="o">.</span><span class="na">length</span><span class="o">);</span>
+<span class="lineno">35</span>             <span class="o">}</span>
+<span class="lineno">36</span> 
+<span class="lineno">37</span>             <span class="n">freeArrays</span><span class="o">(</span><span class="n">ohashes</span><span class="o">,</span> <span class="n">oarray</span><span class="o">,</span> <span class="n">mSize</span><span class="o">);</span>
+<span class="lineno">38</span>         <span class="o">}</span>
+<span class="lineno">39</span> 
+<span class="lineno">40</span>         <span class="k">if</span> <span class="o">(</span><span class="n">index</span> <span class="o">&lt;</span> <span class="n">mSize</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno">41</span>             <span class="k">if</span> <span class="o">(</span><span class="n">DEBUG</span><span class="o">)</span> <span class="n">Log</span><span class="o">.</span><span class="na">d</span><span class="o">(</span><span class="n">TAG</span><span class="o">,</span> <span class="s">&quot;put: move &quot;</span> <span class="o">+</span> <span class="n">index</span> <span class="o">+</span> <span class="s">&quot;-&quot;</span> <span class="o">+</span> <span class="o">(</span><span class="n">mSize</span><span class="o">-</span><span class="n">index</span><span class="o">)</span>
+<span class="lineno">42</span>                     <span class="o">+</span> <span class="s">&quot; to &quot;</span> <span class="o">+</span> <span class="o">(</span><span class="n">index</span><span class="o">+</span><span class="mi">1</span><span class="o">));</span>
+<span class="lineno">43</span>             <span class="c1">// 将index以后的数据往后移动一格</span>
+<span class="lineno">44</span>             <span class="n">System</span><span class="o">.</span><span class="na">arraycopy</span><span class="o">(</span><span class="n">mHashes</span><span class="o">,</span> <span class="n">index</span><span class="o">,</span> <span class="n">mHashes</span><span class="o">,</span> <span class="n">index</span> <span class="o">+</span> <span class="mi">1</span><span class="o">,</span> <span class="n">mSize</span> <span class="o">-</span> <span class="n">index</span><span class="o">);</span>
+<span class="lineno">45</span>             <span class="n">System</span><span class="o">.</span><span class="na">arraycopy</span><span class="o">(</span><span class="n">mArray</span><span class="o">,</span> <span class="n">index</span> <span class="o">&lt;&lt;</span> <span class="mi">1</span><span class="o">,</span> <span class="n">mArray</span><span class="o">,</span> <span class="o">(</span><span class="n">index</span> <span class="o">+</span> <span class="mi">1</span><span class="o">)</span> <span class="o">&lt;&lt;</span> <span class="mi">1</span><span class="o">,</span> <span class="o">(</span><span class="n">mSize</span> <span class="o">-</span> <span class="n">index</span><span class="o">)</span> <span class="o">&lt;&lt;</span> <span class="mi">1</span><span class="o">);</span>
+<span class="lineno">46</span>         <span class="o">}</span>
+<span class="lineno">47</span> 
+<span class="lineno">48</span>         <span class="c1">// mHashes中放key的hash值</span>
+<span class="lineno">49</span>         <span class="n">mHashes</span><span class="o">[</span><span class="n">index</span><span class="o">]</span> <span class="o">=</span> <span class="n">hash</span><span class="o">;</span>
+<span class="lineno">50</span>         <span class="c1">// mArray[index*2]放key， 再下一位放value</span>
+<span class="lineno">51</span>         <span class="n">mArray</span><span class="o">[</span><span class="n">index</span><span class="o">&lt;&lt;</span><span class="mi">1</span><span class="o">]</span> <span class="o">=</span> <span class="n">key</span><span class="o">;</span>
+<span class="lineno">52</span>         <span class="n">mArray</span><span class="o">[(</span><span class="n">index</span><span class="o">&lt;&lt;</span><span class="mi">1</span><span class="o">)+</span><span class="mi">1</span><span class="o">]</span> <span class="o">=</span> <span class="n">value</span><span class="o">;</span>
+<span class="lineno">53</span>         <span class="n">mSize</span><span class="o">++;</span>
+<span class="lineno">54</span>         <span class="k">return</span> <span class="kc">null</span><span class="o">;</span>
+<span class="lineno">55</span>     <span class="o">}</span></code></pre></div>
+
+<p>大致框架还是很清楚的，逻辑跟SparseArray还是很相似的，区别在于mHashes里面存的是key的hash值(hash值有可能冲突，put里面看不清楚到底什么逻辑), 对应mArray里连续两位分别放真正的key和value</p>
+
+<p>看完ge我们就知道它到底怎么处理冲突的了：</p>
+
+<div class="highlight"><pre><code class="java"><span class="lineno"> 1</span> <span class="nd">@Override</span>
+<span class="lineno"> 2</span>     <span class="kd">public</span> <span class="n">V</span> <span class="nf">get</span><span class="o">(</span><span class="n">Object</span> <span class="n">key</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno"> 3</span>         <span class="kd">final</span> <span class="kt">int</span> <span class="n">index</span> <span class="o">=</span> <span class="n">indexOfKey</span><span class="o">(</span><span class="n">key</span><span class="o">);</span>
+<span class="lineno"> 4</span>         <span class="k">return</span> <span class="n">index</span> <span class="o">&gt;=</span> <span class="mi">0</span> <span class="o">?</span> <span class="o">(</span><span class="n">V</span><span class="o">)</span><span class="n">mArray</span><span class="o">[(</span><span class="n">index</span><span class="o">&lt;&lt;</span><span class="mi">1</span><span class="o">)+</span><span class="mi">1</span><span class="o">]</span> <span class="o">:</span> <span class="kc">null</span><span class="o">;</span>
+<span class="lineno"> 5</span>     <span class="o">}</span>
+<span class="lineno"> 6</span> 
+<span class="lineno"> 7</span>     <span class="kd">public</span> <span class="kt">int</span> <span class="nf">indexOfKey</span><span class="o">(</span><span class="n">Object</span> <span class="n">key</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno"> 8</span>         <span class="k">return</span> <span class="n">key</span> <span class="o">==</span> <span class="kc">null</span> <span class="o">?</span> <span class="n">indexOfNull</span><span class="o">()</span> <span class="o">:</span> <span class="n">indexOf</span><span class="o">(</span><span class="n">key</span><span class="o">,</span> <span class="n">key</span><span class="o">.</span><span class="na">hashCode</span><span class="o">());</span>
+<span class="lineno"> 9</span>     <span class="o">}</span>
+<span class="lineno">10</span> 
+<span class="lineno">11</span>     <span class="kt">int</span> <span class="nf">indexOf</span><span class="o">(</span><span class="n">Object</span> <span class="n">key</span><span class="o">,</span> <span class="kt">int</span> <span class="n">hash</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno">12</span>         <span class="kd">final</span> <span class="kt">int</span> <span class="n">N</span> <span class="o">=</span> <span class="n">mSize</span><span class="o">;</span>
+<span class="lineno">13</span> 
+<span class="lineno">14</span>         <span class="c1">// Important fast case: if nothing is in here, nothing to look for.</span>
+<span class="lineno">15</span>         <span class="k">if</span> <span class="o">(</span><span class="n">N</span> <span class="o">==</span> <span class="mi">0</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno">16</span>             <span class="k">return</span> <span class="o">~</span><span class="mi">0</span><span class="o">;</span>
+<span class="lineno">17</span>         <span class="o">}</span>
+<span class="lineno">18</span> 
+<span class="lineno">19</span>         <span class="kt">int</span> <span class="n">index</span> <span class="o">=</span> <span class="n">ContainerHelpers</span><span class="o">.</span><span class="na">binarySearch</span><span class="o">(</span><span class="n">mHashes</span><span class="o">,</span> <span class="n">N</span><span class="o">,</span> <span class="n">hash</span><span class="o">);</span>
+<span class="lineno">20</span> 
+<span class="lineno">21</span>         <span class="c1">// If the hash code wasn&#39;t found, then we have no entry for this key.</span>
+<span class="lineno">22</span>         <span class="k">if</span> <span class="o">(</span><span class="n">index</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno">23</span>             <span class="k">return</span> <span class="n">index</span><span class="o">;</span>
+<span class="lineno">24</span>         <span class="o">}</span>
+<span class="lineno">25</span> 
+<span class="lineno">26</span>         <span class="c1">// If the key at the returned index matches, that&#39;s what we want.</span>
+<span class="lineno">27</span>         <span class="k">if</span> <span class="o">(</span><span class="n">key</span><span class="o">.</span><span class="na">equals</span><span class="o">(</span><span class="n">mArray</span><span class="o">[</span><span class="n">index</span><span class="o">&lt;&lt;</span><span class="mi">1</span><span class="o">]))</span> <span class="o">{</span>
+<span class="lineno">28</span>             <span class="k">return</span> <span class="n">index</span><span class="o">;</span>
+<span class="lineno">29</span>         <span class="o">}</span>
+<span class="lineno">30</span> 
+<span class="lineno">31</span>         <span class="c1">// Search for a matching key after the index.</span>
+<span class="lineno">32</span>         <span class="kt">int</span> <span class="n">end</span><span class="o">;</span>
+<span class="lineno">33</span>         <span class="k">for</span> <span class="o">(</span><span class="n">end</span> <span class="o">=</span> <span class="n">index</span> <span class="o">+</span> <span class="mi">1</span><span class="o">;</span> <span class="n">end</span> <span class="o">&lt;</span> <span class="n">N</span> <span class="o">&amp;&amp;</span> <span class="n">mHashes</span><span class="o">[</span><span class="n">end</span><span class="o">]</span> <span class="o">==</span> <span class="n">hash</span><span class="o">;</span> <span class="n">end</span><span class="o">++)</span> <span class="o">{</span>
+<span class="lineno">34</span>             <span class="k">if</span> <span class="o">(</span><span class="n">key</span><span class="o">.</span><span class="na">equals</span><span class="o">(</span><span class="n">mArray</span><span class="o">[</span><span class="n">end</span> <span class="o">&lt;&lt;</span> <span class="mi">1</span><span class="o">]))</span> <span class="k">return</span> <span class="n">end</span><span class="o">;</span>
+<span class="lineno">35</span>         <span class="o">}</span>
+<span class="lineno">36</span> 
+<span class="lineno">37</span>         <span class="c1">// Search for a matching key before the index.</span>
+<span class="lineno">38</span>         <span class="k">for</span> <span class="o">(</span><span class="kt">int</span> <span class="n">i</span> <span class="o">=</span> <span class="n">index</span> <span class="o">-</span> <span class="mi">1</span><span class="o">;</span> <span class="n">i</span> <span class="o">&gt;=</span> <span class="mi">0</span> <span class="o">&amp;&amp;</span> <span class="n">mHashes</span><span class="o">[</span><span class="n">i</span><span class="o">]</span> <span class="o">==</span> <span class="n">hash</span><span class="o">;</span> <span class="n">i</span><span class="o">--)</span> <span class="o">{</span>
+<span class="lineno">39</span>             <span class="k">if</span> <span class="o">(</span><span class="n">key</span><span class="o">.</span><span class="na">equals</span><span class="o">(</span><span class="n">mArray</span><span class="o">[</span><span class="n">i</span> <span class="o">&lt;&lt;</span> <span class="mi">1</span><span class="o">]))</span> <span class="k">return</span> <span class="n">i</span><span class="o">;</span>
+<span class="lineno">40</span>         <span class="o">}</span>
+<span class="lineno">41</span> 
+<span class="lineno">42</span>         <span class="c1">// Key not found -- return negative value indicating where a</span>
+<span class="lineno">43</span>         <span class="c1">// new entry for this key should go.  We use the end of the</span>
+<span class="lineno">44</span>         <span class="c1">// hash chain to reduce the number of array entries that will</span>
+<span class="lineno">45</span>         <span class="c1">// need to be copied when inserting.</span>
+<span class="lineno">46</span>         <span class="k">return</span> <span class="o">~</span><span class="n">end</span><span class="o">;</span>
+<span class="lineno">47</span>     <span class="o">}</span></code></pre></div>
+
+<p>get方法很简单， 关键是如何找到index<br />
+注释写的很清楚，根据indexOf()的逻辑, 先通过hash值找到mHashes里的index， 但是hash值是有可能冲突的，因此两个for循环，分别去对应mArray中往前往后一一去通过key.equals()匹配，这样去解决hash冲突的</p>
+
+<h2 id="section"><em>总结</em></h2>
+<p>其实仔细一想， 无论是SparseArray或者是ArrayMap，在执行效率上，无论是从查找、解决冲突、扩展容量来看，都并不优于HashMap<br />
+那为什么要极力推荐前两者呢？<br />
+因为在Android，主要矛盾还是内存的占用，HashMap内部维护的链表占用的内存开销更大，而前两者只用数组就解决了空间问题， 当然了，SparseArray还没有自动装箱拆箱的损耗， 因此，以后在Android中用到map， 我会尽量使用这样的数据结构而避免使用HashMap了</p>
+
+  </article>
+
+</div>
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+	<div class="info">
+      		<ul>
+			<li>转载请注明出处<a class="this-link" href="http://moonfacex.github.io/moonface.github.io/android/2016/04/01/sparsearray_and_arraymap.html">http://moonfacex.github.io/moonface.github.io/android/2016/04/01/sparsearray_and_arraymap.html</a></li>
+        		<li>如有疑问，可以微博私信我或者发邮件给我</li>
+      		</ul>
+    	</div>
+    
+    <div class="footer-col-1 column">
+      <ul>
+        <li>MoonfaceX</li>
+        <li><a href="mailto:mr.moonfacex@gmail.com">mr.moonfacex@gmail.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/MoonfaceX/moonface.github.io">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username"></span>
+          </a>
+        </li>
+        <li>
+	  <a href="http://weibo.com/u/1005421853"
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username"></span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+      <p class="text">You'll never walk alone.</p>
+    </div>
+
+  </div>
+
+</footer>
+
+
+    </body>
+</html>
