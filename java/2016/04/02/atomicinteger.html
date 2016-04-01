@@ -63,6 +63,75 @@
   <article class="post-content">
   <p>正式开始研究java.util.concurrent了，那最好就是从AtomicInteger开始咯</p>
 
+<p>AtomicInterger, 类如其名，保证原子的更新value， 因此我们看到， 在它内部会维护一个value：</p>
+
+<div class="highlight"><pre><code class="java"><span class="lineno"> 1</span> <span class="kd">public</span> <span class="kd">class</span> <span class="nc">AtomicInteger</span> <span class="kd">extends</span> <span class="n">Number</span> <span class="kd">implements</span> <span class="n">java</span><span class="o">.</span><span class="na">io</span><span class="o">.</span><span class="na">Serializable</span> <span class="o">{</span>
+<span class="lineno"> 2</span>     <span class="kd">private</span> <span class="kd">static</span> <span class="kd">final</span> <span class="kt">long</span> <span class="n">serialVersionUID</span> <span class="o">=</span> <span class="mi">6214790243416807050L</span><span class="o">;</span>
+<span class="lineno"> 3</span> 
+<span class="lineno"> 4</span>     <span class="c1">// setup to use Unsafe.compareAndSwapInt for updates</span>
+<span class="lineno"> 5</span>     <span class="kd">private</span> <span class="kd">static</span> <span class="kd">final</span> <span class="n">Unsafe</span> <span class="n">unsafe</span> <span class="o">=</span> <span class="n">Unsafe</span><span class="o">.</span><span class="na">getUnsafe</span><span class="o">();</span>
+<span class="lineno"> 6</span>     <span class="kd">private</span> <span class="kd">static</span> <span class="kd">final</span> <span class="kt">long</span> <span class="n">valueOffset</span><span class="o">;</span>
+<span class="lineno"> 7</span> 
+<span class="lineno"> 8</span>     <span class="kd">static</span> <span class="o">{</span>
+<span class="lineno"> 9</span>       <span class="k">try</span> <span class="o">{</span>
+<span class="lineno">10</span>         <span class="n">valueOffset</span> <span class="o">=</span> <span class="n">unsafe</span><span class="o">.</span><span class="na">objectFieldOffset</span>
+<span class="lineno">11</span>             <span class="o">(</span><span class="n">AtomicInteger</span><span class="o">.</span><span class="na">class</span><span class="o">.</span><span class="na">getDeclaredField</span><span class="o">(</span><span class="s">&quot;value&quot;</span><span class="o">));</span>
+<span class="lineno">12</span>       <span class="o">}</span> <span class="k">catch</span> <span class="o">(</span><span class="n">Exception</span> <span class="n">ex</span><span class="o">)</span> <span class="o">{</span> <span class="k">throw</span> <span class="k">new</span> <span class="n">Error</span><span class="o">(</span><span class="n">ex</span><span class="o">);</span> <span class="o">}</span>
+<span class="lineno">13</span>     <span class="o">}</span>
+<span class="lineno">14</span> 
+<span class="lineno">15</span>     <span class="kd">private</span> <span class="kd">volatile</span> <span class="kt">int</span> <span class="n">value</span><span class="o">;</span>
+<span class="lineno">16</span> 
+<span class="lineno">17</span>     <span class="c1">// blahblah...</span>
+<span class="lineno">18</span> <span class="o">}</span></code></pre></div>
+
+<p>值得注意的是，这个value使用volatile来修饰， 兹以为，AtomicInteger只保证原子性，并不保证内存一致性，也就是不保证happens-before原则， 而在多线程中，保证数据一致性是很重要的一条，所以需要volatile来干这件事(<a href="https://docs.oracle.com/javase/tutorial/essential/concurrency/memconsist.html">happens-before</a>)</p>
+
+<p>来看看它是怎么原子操作的：</p>
+
+<div class="highlight"><pre><code class="java"><span class="lineno"> 1</span> <span class="cm">/**</span>
+<span class="lineno"> 2</span> <span class="cm">     * Atomically sets to the given value and returns the old value.</span>
+<span class="lineno"> 3</span> <span class="cm">     *</span>
+<span class="lineno"> 4</span> <span class="cm">     * @param newValue the new value</span>
+<span class="lineno"> 5</span> <span class="cm">     * @return the previous value</span>
+<span class="lineno"> 6</span> <span class="cm">     */</span>
+<span class="lineno"> 7</span>     <span class="kd">public</span> <span class="kd">final</span> <span class="kt">int</span> <span class="nf">getAndSet</span><span class="o">(</span><span class="kt">int</span> <span class="n">newValue</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno"> 8</span>         <span class="k">for</span> <span class="o">(;;)</span> <span class="o">{</span>
+<span class="lineno"> 9</span>             <span class="kt">int</span> <span class="n">current</span> <span class="o">=</span> <span class="n">get</span><span class="o">();</span>
+<span class="lineno">10</span>             <span class="k">if</span> <span class="o">(</span><span class="n">compareAndSet</span><span class="o">(</span><span class="n">current</span><span class="o">,</span> <span class="n">newValue</span><span class="o">))</span>
+<span class="lineno">11</span>                 <span class="k">return</span> <span class="n">current</span><span class="o">;</span>
+<span class="lineno">12</span>         <span class="o">}</span>
+<span class="lineno">13</span>     <span class="o">}</span>
+<span class="lineno">14</span> 
+<span class="lineno">15</span> 
+<span class="lineno">16</span>     <span class="cm">/**</span>
+<span class="lineno">17</span> <span class="cm">     * Gets the current value.</span>
+<span class="lineno">18</span> <span class="cm">     *</span>
+<span class="lineno">19</span> <span class="cm">     * @return the current value</span>
+<span class="lineno">20</span> <span class="cm">     */</span>
+<span class="lineno">21</span>     <span class="kd">public</span> <span class="kd">final</span> <span class="kt">int</span> <span class="nf">get</span><span class="o">()</span> <span class="o">{</span>
+<span class="lineno">22</span>         <span class="k">return</span> <span class="n">value</span><span class="o">;</span>
+<span class="lineno">23</span>     <span class="o">}</span></code></pre></div>
+
+<p>看起来很简单啊，就是一个for循环，不断的调用compareAndSet来设置newValue</p>
+
+<div class="highlight"><pre><code class="java"><span class="lineno"> 1</span> <span class="cm">/**</span>
+<span class="lineno"> 2</span> <span class="cm">     * Atomically sets the value to the given updated value</span>
+<span class="lineno"> 3</span> <span class="cm">     * if the current value {@code ==} the expected value.</span>
+<span class="lineno"> 4</span> <span class="cm">     *</span>
+<span class="lineno"> 5</span> <span class="cm">     * @param expect the expected value</span>
+<span class="lineno"> 6</span> <span class="cm">     * @param update the new value</span>
+<span class="lineno"> 7</span> <span class="cm">     * @return true if successful. False return indicates that</span>
+<span class="lineno"> 8</span> <span class="cm">     * the actual value was not equal to the expected value.</span>
+<span class="lineno"> 9</span> <span class="cm">     */</span>
+<span class="lineno">10</span>     <span class="kd">public</span> <span class="kd">final</span> <span class="kt">boolean</span> <span class="nf">compareAndSet</span><span class="o">(</span><span class="kt">int</span> <span class="n">expect</span><span class="o">,</span> <span class="kt">int</span> <span class="n">update</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno">11</span>         <span class="k">return</span> <span class="n">unsafe</span><span class="o">.</span><span class="na">compareAndSwapInt</span><span class="o">(</span><span class="k">this</span><span class="o">,</span> <span class="n">valueOffset</span><span class="o">,</span> <span class="n">expect</span><span class="o">,</span> <span class="n">update</span><span class="o">);</span>
+<span class="lineno">12</span>     <span class="o">}</span></code></pre></div>
+
+<p>这就是大名鼎鼎的CAS了， 调用的是unsafe的native实现，是一种特定的指令，它会原子性的尝试设置一个newValue，但是只有在原值等于expect的时候才会成功具体的CAS详细介绍可以参照<a href="https://en.wikipedia.org/wiki/Compare-and-swap">wiki</a><br />
+我们清楚了， 它是通过CAS，不断的for循环尝试，如果别的线程在它get()和CAS之间改变了这个值，那将会导致CAS失败，因此会进入下一轮循环，知道当前线程成功更新为新值，这就保证了操作的原子性</p>
+
+<p>最后，也就不难理解为什么还要留出incrementAndGet()、decrementAndGet()、addAndGet(int delta)、getAndAdd(int delta)这些专门的操作了</p>
+
   </article>
 
 </div>
