@@ -270,6 +270,17 @@
 <span class="lineno">14</span>         <span class="o">((</span><span class="n">s</span> <span class="o">=</span> <span class="n">h</span><span class="o">.</span><span class="na">next</span><span class="o">)</span> <span class="o">==</span> <span class="kc">null</span> <span class="o">||</span> <span class="n">s</span><span class="o">.</span><span class="na">thread</span> <span class="o">!=</span> <span class="n">Thread</span><span class="o">.</span><span class="na">currentThread</span><span class="o">());</span>
 <span class="lineno">15</span> <span class="o">}</span></code></pre></div>
 
+<p>来分析一下几种情况：</p>
+
+<ol>
+  <li>
+    <p>h == t，CLH要么就是有唯一的一个thread获得锁，要么CLH为空，干脆根本有没thread获得锁，那就返回false(只有在有thread等待时才会创建CLH，并且加入一个dummyHead，真正等待的是head.next)</p>
+  </li>
+  <li>
+    <p>队列的head.next.thread ！= currentThread, 说明有别的线程先于自己在等待，那么返回true</p>
+  </li>
+</ol>
+
 <p>当queue为空或者是只有head一个node又或者当前线程的node就是head的next时，返回false，说明这三种情况可以调用CAS去尝试获得锁(理解不了就使劲去理解吧)</p>
 
 <p>这下我们看懂了tryAcquire,不过要是tryAcquire失败了呢？回到acquire的if中，接下来有个acquireQueued(addWaiter(Node.EXCLUSIVE), arg))， 先看看addWaiter：</p>
