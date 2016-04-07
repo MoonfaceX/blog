@@ -522,7 +522,7 @@
 
 <h2 id="section"><em>总结</em></h2>
 <p>getLeft() 就是你layout完跟parent之间的距离<br />
-scroll 本质上是移动这个view的画布，同时里面的内容也会跟着移动<br />
+scroll 本质上是移动这个view的画布(的坐标系）并重新invalidate(画到canvas上的东西是不会变的，即使移动了坐标系，只能invalidate重新画)，那么里面的子view的坐标系也会动，但是它们的相对位置是一样的<br />
 getX() 原始在parent里的位置加上属性动画translation的偏移</p>
 
 <p>RenderNode:</p>
