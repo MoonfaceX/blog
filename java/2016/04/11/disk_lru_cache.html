@@ -61,11 +61,616 @@
   </header>
 
   <article class="post-content">
-  <p>前面分析okhttp的时候碰到了这个DiskLruCache，因为当时主要的关注点在如何实现一个httpClient，也就跳过了这部分。因为之前看过Universal-Image-Loader的源码，那里面的cache行为非常的清晰明了：一个HashMap充当内存的缓存，再给出一个文件目录作为磁盘缓存，写入信息的时候先更新hashmap，再在有空的时候写入磁盘文件。逻辑上确实没什么问题，但总有种没那么健壮的感觉。现在，我们在来看一下okhttp中的cache是怎么设计的，看看它们之间有什么差别，更多的也是开阔一下自己的视野，看看人家老外是怎么设计程序的。</p>
+  <p>前面分析okhttp的时候碰到了这个DiskLruCache，因为当时主要的关注点在如何实现一个httpClient，也就跳过了这部分。我们在来看一下okhttp中的cache是怎么设计的，更多的也是开阔一下自己的视野，看看人家老外是怎么设计程序的。</p>
 
 <p>首先给出一个DiskLruCache的大致流程框架：</p>
 
-<p><img src="/assets/diagram_for_DiskLruCache.png" alt="" /></p>
+<p><img src="https://raw.githubusercontent.com/MoonfaceX/blog/gh-pages/assets/diagram_for_DiskLruCache%20.png" alt="" /></p>
+
+<p>可以看到，整个cache分为一个LinkedHashMap和文件系统中的一个目录这两个部分，前者的key是一个string，value是一个entry，每个entry对应着n×2个文件，n的意思是对于每一个key可以存放n个不同的内容，2是因为每个内容都要有一个临时文件，所以它本质上是一个索引。每次当需要的时候，LinkedHashMap会通过Editor的commit操作，将一个entry写入到磁盘文件中。同时，暴露给外部的get和put方法也是通过Editor来直接操作LinkedHashMap的。而在目录中有三个journal.xxx文件，其中journal文件是用来记录cache的操作的，journal.tmp是一个当journal在rebuild时临时起作用的文件，而journal.bkp是一个备份，为了帮助恢复LinkedHashMap的状态。</p>
+
+<p>其实第一次看到这个名字：DiskLruCache，我最好奇的是这个LRU是怎么实现的？最近最少使用算法大家都知道，原理我们也都懂，但是好像还真没有自己去实现过一遍。这里给你们一个福音：</p>
+
+<div class="highlight"><pre><code class="java"><span class="lineno"> 1</span> <span class="cm">/**</span>
+<span class="lineno"> 2</span> <span class="cm"> * @param  initialCapacity the initial capacity</span>
+<span class="lineno"> 3</span> <span class="cm"> * @param  loadFactor      the load factor</span>
+<span class="lineno"> 4</span> <span class="cm"> * @param  accessOrder     the ordering mode - &lt;tt&gt;true&lt;/tt&gt; for</span>
+<span class="lineno"> 5</span> <span class="cm"> *         access-order, &lt;tt&gt;false&lt;/tt&gt; for insertion-order</span>
+<span class="lineno"> 6</span> <span class="cm"> */</span>
+<span class="lineno"> 7</span> <span class="kd">public</span> <span class="nf">LinkedHashMap</span><span class="o">(</span><span class="kt">int</span> <span class="n">initialCapacity</span><span class="o">,</span>
+<span class="lineno"> 8</span>                      <span class="kt">float</span> <span class="n">loadFactor</span><span class="o">,</span>
+<span class="lineno"> 9</span>                      <span class="kt">boolean</span> <span class="n">accessOrder</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno">10</span>     <span class="kd">super</span><span class="o">(</span><span class="n">initialCapacity</span><span class="o">,</span> <span class="n">loadFactor</span><span class="o">);</span>
+<span class="lineno">11</span>     <span class="k">this</span><span class="o">.</span><span class="na">accessOrder</span> <span class="o">=</span> <span class="n">accessOrder</span><span class="o">;</span>
+<span class="lineno">12</span> <span class="o">}</span></code></pre></div>
+
+<p>关注最后一个参数，代表linked的模式，true代表着按访问顺序排序，就是说通过使用Iterator访问元素时，是按照access这个元素的顺序访问的，那么当这个LinkedHashMap的大小固定时，这不就是一个LRU cache么！事实上DishLruCache就是这么干的。</p>
+
+<p>我们先来理一下大致的流程：</p>
+
+<ul>
+  <li>
+    <p>当我们要插入或者更新数据时，更新LinkedHashMap中的entry，entry本身并不存放数据，但是维护这个key对应的文件列表(图中的somkeyK.K(.tmp)，也就是clean和dirty文件),同时返回一个对应此entry的editor，通过editor可以获取entry的文件列表并可以返回一个io接口，通过这个接口就可以写入数据到对应的tmp文件，最后在commit的时候，将tmp文件rename成正式文件，那它就对readers可见了。</p>
+  </li>
+  <li>
+    <p>当要获取数据时，还是通过LinkedHashMap获得一个snapshot，snapshot同样维护一个io接口(source),它可以读取对应的clean文件</p>
+  </li>
+</ul>
+
+<p>那么我正式进入吧！，先看看DiskLruCache的初始化是怎么做的：</p>
+
+<div class="highlight"><pre><code class="java"><span class="lineno"> 1</span> <span class="kd">public</span> <span class="kd">synchronized</span> <span class="kt">void</span> <span class="nf">initialize</span><span class="o">()</span> <span class="kd">throws</span> <span class="n">IOException</span> <span class="o">{</span>
+<span class="lineno"> 2</span>     <span class="k">assert</span> <span class="n">Thread</span><span class="o">.</span><span class="na">holdsLock</span><span class="o">(</span><span class="k">this</span><span class="o">);</span>
+<span class="lineno"> 3</span> 
+<span class="lineno"> 4</span>     <span class="k">if</span> <span class="o">(</span><span class="n">initialized</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno"> 5</span>       <span class="k">return</span><span class="o">;</span> <span class="c1">// Already initialized.</span>
+<span class="lineno"> 6</span>     <span class="o">}</span>
+<span class="lineno"> 7</span> 
+<span class="lineno"> 8</span>     <span class="c1">// 如果有备份文件，就使用它</span>
+<span class="lineno"> 9</span>     <span class="k">if</span> <span class="o">(</span><span class="n">fileSystem</span><span class="o">.</span><span class="na">exists</span><span class="o">(</span><span class="n">journalFileBackup</span><span class="o">))</span> <span class="o">{</span>
+<span class="lineno">10</span>       <span class="c1">// 如果已经有journal文件了，就忽略备份文件</span>
+<span class="lineno">11</span>       <span class="k">if</span> <span class="o">(</span><span class="n">fileSystem</span><span class="o">.</span><span class="na">exists</span><span class="o">(</span><span class="n">journalFile</span><span class="o">))</span> <span class="o">{</span>
+<span class="lineno">12</span>         <span class="n">fileSystem</span><span class="o">.</span><span class="na">delete</span><span class="o">(</span><span class="n">journalFileBackup</span><span class="o">);</span>
+<span class="lineno">13</span>       <span class="o">}</span> <span class="k">else</span> <span class="o">{</span>
+<span class="lineno">14</span>         <span class="n">fileSystem</span><span class="o">.</span><span class="na">rename</span><span class="o">(</span><span class="n">journalFileBackup</span><span class="o">,</span> <span class="n">journalFile</span><span class="o">);</span>
+<span class="lineno">15</span>       <span class="o">}</span>
+<span class="lineno">16</span>     <span class="o">}</span>
+<span class="lineno">17</span> 
+<span class="lineno">18</span>     <span class="c1">// Prefer to pick up where we left off.</span>
+<span class="lineno">19</span>     <span class="k">if</span> <span class="o">(</span><span class="n">fileSystem</span><span class="o">.</span><span class="na">exists</span><span class="o">(</span><span class="n">journalFile</span><span class="o">))</span> <span class="o">{</span>
+<span class="lineno">20</span>       <span class="k">try</span> <span class="o">{</span>
+<span class="lineno">21</span>         <span class="n">readJournal</span><span class="o">();</span>
+<span class="lineno">22</span>         <span class="n">processJournal</span><span class="o">();</span>
+<span class="lineno">23</span>         <span class="n">initialized</span> <span class="o">=</span> <span class="kc">true</span><span class="o">;</span>
+<span class="lineno">24</span>         <span class="k">return</span><span class="o">;</span>
+<span class="lineno">25</span>       <span class="o">}</span> <span class="k">catch</span> <span class="o">(</span><span class="n">IOException</span> <span class="n">journalIsCorrupt</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno">26</span>         <span class="n">Platform</span><span class="o">.</span><span class="na">get</span><span class="o">().</span><span class="na">logW</span><span class="o">(</span><span class="s">&quot;DiskLruCache &quot;</span> <span class="o">+</span> <span class="n">directory</span> <span class="o">+</span> <span class="s">&quot; is corrupt: &quot;</span>
+<span class="lineno">27</span>             <span class="o">+</span> <span class="n">journalIsCorrupt</span><span class="o">.</span><span class="na">getMessage</span><span class="o">()</span> <span class="o">+</span> <span class="s">&quot;, removing&quot;</span><span class="o">);</span>
+<span class="lineno">28</span>         <span class="n">delete</span><span class="o">();</span>
+<span class="lineno">29</span>         <span class="n">closed</span> <span class="o">=</span> <span class="kc">false</span><span class="o">;</span>
+<span class="lineno">30</span>       <span class="o">}</span>
+<span class="lineno">31</span>     <span class="o">}</span>
+<span class="lineno">32</span> 
+<span class="lineno">33</span>     <span class="n">rebuildJournal</span><span class="o">();</span>
+<span class="lineno">34</span> 
+<span class="lineno">35</span>     <span class="n">initialized</span> <span class="o">=</span> <span class="kc">true</span><span class="o">;</span>
+<span class="lineno">36</span>   <span class="o">}</span></code></pre></div>
+
+<p>翻译了一下注释，大概就是从备份文件中恢复，接下来要操作journal文件了，readJournal里会先检查一下魔数和版本号，然后通过一个while循环每次读取jouranl文件中的一行：</p>
+
+<div class="highlight"><pre><code class="java"><span class="lineno"> 1</span> <span class="kd">private</span> <span class="kt">void</span> <span class="nf">readJournalLine</span><span class="o">(</span><span class="n">String</span> <span class="n">line</span><span class="o">)</span> <span class="kd">throws</span> <span class="n">IOException</span> <span class="o">{</span>
+<span class="lineno"> 2</span>     <span class="kt">int</span> <span class="n">firstSpace</span> <span class="o">=</span> <span class="n">line</span><span class="o">.</span><span class="na">indexOf</span><span class="o">(</span><span class="sc">&#39; &#39;</span><span class="o">);</span>
+<span class="lineno"> 3</span>     <span class="k">if</span> <span class="o">(</span><span class="n">firstSpace</span> <span class="o">==</span> <span class="o">-</span><span class="mi">1</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno"> 4</span>       <span class="k">throw</span> <span class="k">new</span> <span class="nf">IOException</span><span class="o">(</span><span class="s">&quot;unexpected journal line: &quot;</span> <span class="o">+</span> <span class="n">line</span><span class="o">);</span>
+<span class="lineno"> 5</span>     <span class="o">}</span>
+<span class="lineno"> 6</span> 
+<span class="lineno"> 7</span>     <span class="kt">int</span> <span class="n">keyBegin</span> <span class="o">=</span> <span class="n">firstSpace</span> <span class="o">+</span> <span class="mi">1</span><span class="o">;</span>
+<span class="lineno"> 8</span>     <span class="kt">int</span> <span class="n">secondSpace</span> <span class="o">=</span> <span class="n">line</span><span class="o">.</span><span class="na">indexOf</span><span class="o">(</span><span class="sc">&#39; &#39;</span><span class="o">,</span> <span class="n">keyBegin</span><span class="o">);</span>
+<span class="lineno"> 9</span>     <span class="kd">final</span> <span class="n">String</span> <span class="n">key</span><span class="o">;</span>
+<span class="lineno">10</span>     <span class="k">if</span> <span class="o">(</span><span class="n">secondSpace</span> <span class="o">==</span> <span class="o">-</span><span class="mi">1</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno">11</span>       <span class="n">key</span> <span class="o">=</span> <span class="n">line</span><span class="o">.</span><span class="na">substring</span><span class="o">(</span><span class="n">keyBegin</span><span class="o">);</span>
+<span class="lineno">12</span>       <span class="k">if</span> <span class="o">(</span><span class="n">firstSpace</span> <span class="o">==</span> <span class="n">REMOVE</span><span class="o">.</span><span class="na">length</span><span class="o">()</span> <span class="o">&amp;&amp;</span> <span class="n">line</span><span class="o">.</span><span class="na">startsWith</span><span class="o">(</span><span class="n">REMOVE</span><span class="o">))</span> <span class="o">{</span>
+<span class="lineno">13</span>         <span class="n">lruEntries</span><span class="o">.</span><span class="na">remove</span><span class="o">(</span><span class="n">key</span><span class="o">);</span>
+<span class="lineno">14</span>         <span class="k">return</span><span class="o">;</span>
+<span class="lineno">15</span>       <span class="o">}</span>
+<span class="lineno">16</span>     <span class="o">}</span> <span class="k">else</span> <span class="o">{</span>
+<span class="lineno">17</span>       <span class="n">key</span> <span class="o">=</span> <span class="n">line</span><span class="o">.</span><span class="na">substring</span><span class="o">(</span><span class="n">keyBegin</span><span class="o">,</span> <span class="n">secondSpace</span><span class="o">);</span>
+<span class="lineno">18</span>     <span class="o">}</span>
+<span class="lineno">19</span> 
+<span class="lineno">20</span>     <span class="n">Entry</span> <span class="n">entry</span> <span class="o">=</span> <span class="n">lruEntries</span><span class="o">.</span><span class="na">get</span><span class="o">(</span><span class="n">key</span><span class="o">);</span>
+<span class="lineno">21</span>     <span class="k">if</span> <span class="o">(</span><span class="n">entry</span> <span class="o">==</span> <span class="kc">null</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno">22</span>       <span class="n">entry</span> <span class="o">=</span> <span class="k">new</span> <span class="n">Entry</span><span class="o">(</span><span class="n">key</span><span class="o">);</span>
+<span class="lineno">23</span>       <span class="n">lruEntries</span><span class="o">.</span><span class="na">put</span><span class="o">(</span><span class="n">key</span><span class="o">,</span> <span class="n">entry</span><span class="o">);</span>
+<span class="lineno">24</span>     <span class="o">}</span>
+<span class="lineno">25</span> 
+<span class="lineno">26</span>     <span class="k">if</span> <span class="o">(</span><span class="n">secondSpace</span> <span class="o">!=</span> <span class="o">-</span><span class="mi">1</span> <span class="o">&amp;&amp;</span> <span class="n">firstSpace</span> <span class="o">==</span> <span class="n">CLEAN</span><span class="o">.</span><span class="na">length</span><span class="o">()</span> <span class="o">&amp;&amp;</span> <span class="n">line</span><span class="o">.</span><span class="na">startsWith</span><span class="o">(</span><span class="n">CLEAN</span><span class="o">))</span> <span class="o">{</span>
+<span class="lineno">27</span>       <span class="n">String</span><span class="o">[]</span> <span class="n">parts</span> <span class="o">=</span> <span class="n">line</span><span class="o">.</span><span class="na">substring</span><span class="o">(</span><span class="n">secondSpace</span> <span class="o">+</span> <span class="mi">1</span><span class="o">).</span><span class="na">split</span><span class="o">(</span><span class="s">&quot; &quot;</span><span class="o">);</span>
+<span class="lineno">28</span>       <span class="n">entry</span><span class="o">.</span><span class="na">readable</span> <span class="o">=</span> <span class="kc">true</span><span class="o">;</span>
+<span class="lineno">29</span>       <span class="n">entry</span><span class="o">.</span><span class="na">currentEditor</span> <span class="o">=</span> <span class="kc">null</span><span class="o">;</span>
+<span class="lineno">30</span>       <span class="n">entry</span><span class="o">.</span><span class="na">setLengths</span><span class="o">(</span><span class="n">parts</span><span class="o">);</span>
+<span class="lineno">31</span>     <span class="o">}</span> <span class="k">else</span> <span class="k">if</span> <span class="o">(</span><span class="n">secondSpace</span> <span class="o">==</span> <span class="o">-</span><span class="mi">1</span> <span class="o">&amp;&amp;</span> <span class="n">firstSpace</span> <span class="o">==</span> <span class="n">DIRTY</span><span class="o">.</span><span class="na">length</span><span class="o">()</span> <span class="o">&amp;&amp;</span> <span class="n">line</span><span class="o">.</span><span class="na">startsWith</span><span class="o">(</span><span class="n">DIRTY</span><span class="o">))</span> <span class="o">{</span>
+<span class="lineno">32</span>       <span class="n">entry</span><span class="o">.</span><span class="na">currentEditor</span> <span class="o">=</span> <span class="k">new</span> <span class="n">Editor</span><span class="o">(</span><span class="n">entry</span><span class="o">);</span>
+<span class="lineno">33</span>     <span class="o">}</span> <span class="k">else</span> <span class="k">if</span> <span class="o">(</span><span class="n">secondSpace</span> <span class="o">==</span> <span class="o">-</span><span class="mi">1</span> <span class="o">&amp;&amp;</span> <span class="n">firstSpace</span> <span class="o">==</span> <span class="n">READ</span><span class="o">.</span><span class="na">length</span><span class="o">()</span> <span class="o">&amp;&amp;</span> <span class="n">line</span><span class="o">.</span><span class="na">startsWith</span><span class="o">(</span><span class="n">READ</span><span class="o">))</span> <span class="o">{</span>
+<span class="lineno">34</span>       <span class="c1">// This work was already done by calling lruEntries.get().</span>
+<span class="lineno">35</span>     <span class="o">}</span> <span class="k">else</span> <span class="o">{</span>
+<span class="lineno">36</span>       <span class="k">throw</span> <span class="k">new</span> <span class="nf">IOException</span><span class="o">(</span><span class="s">&quot;unexpected journal line: &quot;</span> <span class="o">+</span> <span class="n">line</span><span class="o">);</span>
+<span class="lineno">37</span>     <span class="o">}</span>
+<span class="lineno">38</span>   <span class="o">}</span></code></pre></div>
+
+<ul>
+  <li>
+    <p>如果标记是REMOVE，就从索引中删除(我们看到的lruEntries就是之前说的LinkedHashMap)</p>
+  </li>
+  <li>
+    <p>获取key对应的entry(没有的话就new一个)</p>
+  </li>
+  <li>
+    <p>如果是CLEAN的话，对这个entry中的文件的长度进行更新</p>
+  </li>
+  <li>
+    <p>如果是DIRTY，说明这个值正在被操作，还没有commit，于是给entry分配一个Editor</p>
+  </li>
+  <li>
+    <p>如果是READ，说明这条数据被读过了，什么也不做</p>
+  </li>
+</ul>
+
+<p>给个例子看看journal文件的内容你就明白了</p>
+
+<div class="highlight"><pre><code class="java"><span class="lineno"> 1</span> <span class="o">*</span>     <span class="n">libcore</span><span class="o">.</span><span class="na">io</span><span class="o">.</span><span class="na">DiskLruCache</span>
+<span class="lineno"> 2</span> <span class="o">*</span>     <span class="mi">1</span>
+<span class="lineno"> 3</span> <span class="o">*</span>     <span class="mi">100</span>
+<span class="lineno"> 4</span> <span class="o">*</span>     <span class="mi">2</span>
+<span class="lineno"> 5</span> <span class="o">*</span>
+<span class="lineno"> 6</span> <span class="o">*</span>     <span class="n">CLEAN</span> <span class="mi">3400330</span><span class="n">d1dfc7f3f7f4b8d4d803dfcf6</span> <span class="mi">832</span> <span class="mi">21054</span>
+<span class="lineno"> 7</span> <span class="o">*</span>     <span class="n">DIRTY</span> <span class="mi">335</span><span class="n">c4c6028171cfddfbaae1a9c313c52</span>
+<span class="lineno"> 8</span> <span class="o">*</span>     <span class="n">CLEAN</span> <span class="mi">335</span><span class="n">c4c6028171cfddfbaae1a9c313c52</span> <span class="mi">3934</span> <span class="mi">2342</span>
+<span class="lineno"> 9</span> <span class="o">*</span>     <span class="n">REMOVE</span> <span class="mi">335</span><span class="n">c4c6028171cfddfbaae1a9c313c52</span>
+<span class="lineno">10</span> <span class="o">*</span>     <span class="n">DIRTY</span> <span class="mi">1</span><span class="n">ab96a171faeeee38496d8b330771a7a</span>
+<span class="lineno">11</span> <span class="o">*</span>     <span class="n">CLEAN</span> <span class="mi">1</span><span class="n">ab96a171faeeee38496d8b330771a7a</span> <span class="mi">1600</span> <span class="mi">234</span>
+<span class="lineno">12</span> <span class="o">*</span>     <span class="n">READ</span> <span class="mi">335</span><span class="n">c4c6028171cfddfbaae1a9c313c52</span>
+<span class="lineno">13</span> <span class="o">*</span>     <span class="n">READ</span> <span class="mi">3400330</span><span class="n">d1dfc7f3f7f4b8d4d803dfcf6</span></code></pre></div>
+
+<p>在readJournal的最后，如果读取数据没有问题，会创建一个journalWriter来专门对Journal文件进行写操作
+readJournal完了之后，所有clean和dirty数据的entries已经放到lruEntries里去了，接下来的processJournal就是将其中的dirty的entries所对应的文件全部删除，因为dirty状态的数据是不一致，因此我们不需要它们，但是仍在lruEntries中保留它们，因为毕竟它们仍是最近用到的</p>
+
+<p>如果上面的这些初始化出现了异常，那会进入rebuildJournal</p>
+
+<div class="highlight"><pre><code class="java"><span class="lineno"> 1</span> <span class="cm">/**</span>
+<span class="lineno"> 2</span> <span class="cm">   * Creates a new journal that omits redundant information. This replaces the current journal if it</span>
+<span class="lineno"> 3</span> <span class="cm">   * exists.</span>
+<span class="lineno"> 4</span> <span class="cm">   */</span>
+<span class="lineno"> 5</span>   <span class="kd">private</span> <span class="kd">synchronized</span> <span class="kt">void</span> <span class="nf">rebuildJournal</span><span class="o">()</span> <span class="kd">throws</span> <span class="n">IOException</span> <span class="o">{</span>
+<span class="lineno"> 6</span>     <span class="k">if</span> <span class="o">(</span><span class="n">journalWriter</span> <span class="o">!=</span> <span class="kc">null</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno"> 7</span>       <span class="n">journalWriter</span><span class="o">.</span><span class="na">close</span><span class="o">();</span>
+<span class="lineno"> 8</span>     <span class="o">}</span>
+<span class="lineno"> 9</span> 
+<span class="lineno">10</span>     <span class="n">BufferedSink</span> <span class="n">writer</span> <span class="o">=</span> <span class="n">Okio</span><span class="o">.</span><span class="na">buffer</span><span class="o">(</span><span class="n">fileSystem</span><span class="o">.</span><span class="na">sink</span><span class="o">(</span><span class="n">journalFileTmp</span><span class="o">));</span>
+<span class="lineno">11</span>     <span class="k">try</span> <span class="o">{</span>
+<span class="lineno">12</span>       <span class="n">writer</span><span class="o">.</span><span class="na">writeUtf8</span><span class="o">(</span><span class="n">MAGIC</span><span class="o">).</span><span class="na">writeByte</span><span class="o">(</span><span class="sc">&#39;\n&#39;</span><span class="o">);</span>
+<span class="lineno">13</span>       <span class="n">writer</span><span class="o">.</span><span class="na">writeUtf8</span><span class="o">(</span><span class="n">VERSION_1</span><span class="o">).</span><span class="na">writeByte</span><span class="o">(</span><span class="sc">&#39;\n&#39;</span><span class="o">);</span>
+<span class="lineno">14</span>       <span class="n">writer</span><span class="o">.</span><span class="na">writeDecimalLong</span><span class="o">(</span><span class="n">appVersion</span><span class="o">).</span><span class="na">writeByte</span><span class="o">(</span><span class="sc">&#39;\n&#39;</span><span class="o">);</span>
+<span class="lineno">15</span>       <span class="n">writer</span><span class="o">.</span><span class="na">writeDecimalLong</span><span class="o">(</span><span class="n">valueCount</span><span class="o">).</span><span class="na">writeByte</span><span class="o">(</span><span class="sc">&#39;\n&#39;</span><span class="o">);</span>
+<span class="lineno">16</span>       <span class="n">writer</span><span class="o">.</span><span class="na">writeByte</span><span class="o">(</span><span class="sc">&#39;\n&#39;</span><span class="o">);</span>
+<span class="lineno">17</span> 
+<span class="lineno">18</span>       <span class="k">for</span> <span class="o">(</span><span class="n">Entry</span> <span class="n">entry</span> <span class="o">:</span> <span class="n">lruEntries</span><span class="o">.</span><span class="na">values</span><span class="o">())</span> <span class="o">{</span>
+<span class="lineno">19</span>         <span class="k">if</span> <span class="o">(</span><span class="n">entry</span><span class="o">.</span><span class="na">currentEditor</span> <span class="o">!=</span> <span class="kc">null</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno">20</span>           <span class="n">writer</span><span class="o">.</span><span class="na">writeUtf8</span><span class="o">(</span><span class="n">DIRTY</span><span class="o">).</span><span class="na">writeByte</span><span class="o">(</span><span class="sc">&#39; &#39;</span><span class="o">);</span>
+<span class="lineno">21</span>           <span class="n">writer</span><span class="o">.</span><span class="na">writeUtf8</span><span class="o">(</span><span class="n">entry</span><span class="o">.</span><span class="na">key</span><span class="o">);</span>
+<span class="lineno">22</span>           <span class="n">writer</span><span class="o">.</span><span class="na">writeByte</span><span class="o">(</span><span class="sc">&#39;\n&#39;</span><span class="o">);</span>
+<span class="lineno">23</span>         <span class="o">}</span> <span class="k">else</span> <span class="o">{</span>
+<span class="lineno">24</span>           <span class="n">writer</span><span class="o">.</span><span class="na">writeUtf8</span><span class="o">(</span><span class="n">CLEAN</span><span class="o">).</span><span class="na">writeByte</span><span class="o">(</span><span class="sc">&#39; &#39;</span><span class="o">);</span>
+<span class="lineno">25</span>           <span class="n">writer</span><span class="o">.</span><span class="na">writeUtf8</span><span class="o">(</span><span class="n">entry</span><span class="o">.</span><span class="na">key</span><span class="o">);</span>
+<span class="lineno">26</span>           <span class="n">entry</span><span class="o">.</span><span class="na">writeLengths</span><span class="o">(</span><span class="n">writer</span><span class="o">);</span>
+<span class="lineno">27</span>           <span class="n">writer</span><span class="o">.</span><span class="na">writeByte</span><span class="o">(</span><span class="sc">&#39;\n&#39;</span><span class="o">);</span>
+<span class="lineno">28</span>         <span class="o">}</span>
+<span class="lineno">29</span>       <span class="o">}</span>
+<span class="lineno">30</span>     <span class="o">}</span> <span class="k">finally</span> <span class="o">{</span>
+<span class="lineno">31</span>       <span class="n">writer</span><span class="o">.</span><span class="na">close</span><span class="o">();</span>
+<span class="lineno">32</span>     <span class="o">}</span>
+<span class="lineno">33</span> 
+<span class="lineno">34</span>     <span class="k">if</span> <span class="o">(</span><span class="n">fileSystem</span><span class="o">.</span><span class="na">exists</span><span class="o">(</span><span class="n">journalFile</span><span class="o">))</span> <span class="o">{</span>
+<span class="lineno">35</span>       <span class="n">fileSystem</span><span class="o">.</span><span class="na">rename</span><span class="o">(</span><span class="n">journalFile</span><span class="o">,</span> <span class="n">journalFileBackup</span><span class="o">);</span>
+<span class="lineno">36</span>     <span class="o">}</span>
+<span class="lineno">37</span>     <span class="n">fileSystem</span><span class="o">.</span><span class="na">rename</span><span class="o">(</span><span class="n">journalFileTmp</span><span class="o">,</span> <span class="n">journalFile</span><span class="o">);</span>
+<span class="lineno">38</span>     <span class="n">fileSystem</span><span class="o">.</span><span class="na">delete</span><span class="o">(</span><span class="n">journalFileBackup</span><span class="o">);</span>
+<span class="lineno">39</span> 
+<span class="lineno">40</span>     <span class="n">journalWriter</span> <span class="o">=</span> <span class="n">newJournalWriter</span><span class="o">();</span>
+<span class="lineno">41</span>     <span class="n">hasJournalErrors</span> <span class="o">=</span> <span class="kc">false</span><span class="o">;</span>
+<span class="lineno">42</span>     <span class="n">mostRecentRebuildFailed</span> <span class="o">=</span> <span class="kc">false</span><span class="o">;</span>
+<span class="lineno">43</span>   <span class="o">}</span></code></pre></div>
+
+<ul>
+  <li>
+    <p>首先会写入文件头部，包括魔数版本号什么的(这里操作的都是tmp文件)</p>
+  </li>
+  <li>
+    <p>根据lruEntries的内容将写回到tmp文件中</p>
+  </li>
+  <li>
+    <p>最后重命名为journal文件</p>
+  </li>
+</ul>
+
+<p>我们可以看到，rebuild操作是以lruEntries为准，把DIRTY和CLEAN的操作写回到journal中。但发现没有，其实并没有改动真正的value，只不过重写了一些事务的记录。事实上，lruEntries和journal文件共同确定了cache数据的有效性，前者更多的是一个索引，而后者对操作进行了归类，其中任何一个都能保存一个稳定的状态。</p>
+
+<p>看完了初始化，我们看看如何获取一个editor的：</p>
+
+<div class="highlight"><pre><code class="java"><span class="lineno"> 1</span> <span class="kd">private</span> <span class="kd">synchronized</span> <span class="n">Editor</span> <span class="nf">edit</span><span class="o">(</span><span class="n">String</span> <span class="n">key</span><span class="o">,</span> <span class="kt">long</span> <span class="n">expectedSequenceNumber</span><span class="o">)</span> <span class="kd">throws</span> <span class="n">IOException</span> <span class="o">{</span>
+<span class="lineno"> 2</span>     <span class="n">initialize</span><span class="o">();</span>
+<span class="lineno"> 3</span> 
+<span class="lineno"> 4</span>     <span class="n">checkNotClosed</span><span class="o">();</span>
+<span class="lineno"> 5</span>     <span class="n">validateKey</span><span class="o">(</span><span class="n">key</span><span class="o">);</span>
+<span class="lineno"> 6</span>     <span class="n">Entry</span> <span class="n">entry</span> <span class="o">=</span> <span class="n">lruEntries</span><span class="o">.</span><span class="na">get</span><span class="o">(</span><span class="n">key</span><span class="o">);</span>
+<span class="lineno"> 7</span>     <span class="k">if</span> <span class="o">(</span><span class="n">expectedSequenceNumber</span> <span class="o">!=</span> <span class="n">ANY_SEQUENCE_NUMBER</span> <span class="o">&amp;&amp;</span> <span class="o">(</span><span class="n">entry</span> <span class="o">==</span> <span class="kc">null</span>
+<span class="lineno"> 8</span>         <span class="o">||</span> <span class="n">entry</span><span class="o">.</span><span class="na">sequenceNumber</span> <span class="o">!=</span> <span class="n">expectedSequenceNumber</span><span class="o">))</span> <span class="o">{</span>
+<span class="lineno"> 9</span>       <span class="k">return</span> <span class="kc">null</span><span class="o">;</span> <span class="c1">// Snapshot is stale.</span>
+<span class="lineno">10</span>     <span class="o">}</span>
+<span class="lineno">11</span>     <span class="k">if</span> <span class="o">(</span><span class="n">entry</span> <span class="o">!=</span> <span class="kc">null</span> <span class="o">&amp;&amp;</span> <span class="n">entry</span><span class="o">.</span><span class="na">currentEditor</span> <span class="o">!=</span> <span class="kc">null</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno">12</span>       <span class="k">return</span> <span class="kc">null</span><span class="o">;</span> <span class="c1">// Another edit is in progress.</span>
+<span class="lineno">13</span>     <span class="o">}</span>
+<span class="lineno">14</span>     <span class="k">if</span> <span class="o">(</span><span class="n">mostRecentTrimFailed</span> <span class="o">||</span> <span class="n">mostRecentRebuildFailed</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno">15</span>       <span class="n">executor</span><span class="o">.</span><span class="na">execute</span><span class="o">(</span><span class="n">cleanupRunnable</span><span class="o">);</span>
+<span class="lineno">16</span>       <span class="k">return</span> <span class="kc">null</span><span class="o">;</span>
+<span class="lineno">17</span>     <span class="o">}</span>
+<span class="lineno">18</span> 
+<span class="lineno">19</span>     <span class="c1">// Flush the journal before creating files to prevent file leaks.</span>
+<span class="lineno">20</span>     <span class="n">journalWriter</span><span class="o">.</span><span class="na">writeUtf8</span><span class="o">(</span><span class="n">DIRTY</span><span class="o">).</span><span class="na">writeByte</span><span class="o">(</span><span class="sc">&#39; &#39;</span><span class="o">).</span><span class="na">writeUtf8</span><span class="o">(</span><span class="n">key</span><span class="o">).</span><span class="na">writeByte</span><span class="o">(</span><span class="sc">&#39;\n&#39;</span><span class="o">);</span>
+<span class="lineno">21</span>     <span class="n">journalWriter</span><span class="o">.</span><span class="na">flush</span><span class="o">();</span>
+<span class="lineno">22</span> 
+<span class="lineno">23</span>     <span class="k">if</span> <span class="o">(</span><span class="n">hasJournalErrors</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno">24</span>       <span class="k">return</span> <span class="kc">null</span><span class="o">;</span> <span class="c1">// Don&#39;t edit; the journal can&#39;t be written.</span>
+<span class="lineno">25</span>     <span class="o">}</span>
+<span class="lineno">26</span> 
+<span class="lineno">27</span>     <span class="k">if</span> <span class="o">(</span><span class="n">entry</span> <span class="o">==</span> <span class="kc">null</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno">28</span>       <span class="n">entry</span> <span class="o">=</span> <span class="k">new</span> <span class="n">Entry</span><span class="o">(</span><span class="n">key</span><span class="o">);</span>
+<span class="lineno">29</span>       <span class="n">lruEntries</span><span class="o">.</span><span class="na">put</span><span class="o">(</span><span class="n">key</span><span class="o">,</span> <span class="n">entry</span><span class="o">);</span>
+<span class="lineno">30</span>     <span class="o">}</span>
+<span class="lineno">31</span>     <span class="n">Editor</span> <span class="n">editor</span> <span class="o">=</span> <span class="k">new</span> <span class="n">Editor</span><span class="o">(</span><span class="n">entry</span><span class="o">);</span>
+<span class="lineno">32</span>     <span class="n">entry</span><span class="o">.</span><span class="na">currentEditor</span> <span class="o">=</span> <span class="n">editor</span><span class="o">;</span>
+<span class="lineno">33</span>     <span class="k">return</span> <span class="n">editor</span><span class="o">;</span>
+<span class="lineno">34</span>   <span class="o">}</span></code></pre></div>
+
+<ul>
+  <li>
+    <p>11行中如果已经有别的editor在操作这个entry了，那就返回null(在调用这个方法时如果返回值是null，那么可以考虑重做这个task，我觉得唯一有点不方便的是这个editor时不时的会进行new操作，这样就没办法通过锁的方式去等待已有的editor做完它手上的事，只能通过轮询的方式检查返回值是否为null， 如果任务特别密集我觉得是不是可以对这个entry上锁)</p>
+  </li>
+  <li>
+    <p>15行如果必要的话，进行cleanup操作，我们等下再看这两个boolean是什么意思</p>
+  </li>
+  <li>
+    <p>20行会把当前的key在journal文件里标记成dirty状态，表示这条记录正在被修改</p>
+  </li>
+  <li>
+    <p>28行有可能会创建一个Entry，我们看看里面有什么</p>
+  </li>
+</ul>
+
+<div class="highlight"><pre><code class="java"><span class="lineno"> 1</span> <span class="kd">private</span> <span class="kd">final</span> <span class="kd">class</span> <span class="nc">Entry</span> <span class="o">{</span>
+<span class="lineno"> 2</span>     <span class="kd">private</span> <span class="kd">final</span> <span class="n">String</span> <span class="n">key</span><span class="o">;</span>
+<span class="lineno"> 3</span> 
+<span class="lineno"> 4</span>     <span class="cm">/** Lengths of this entry&#39;s files. */</span>
+<span class="lineno"> 5</span>     <span class="kd">private</span> <span class="kd">final</span> <span class="kt">long</span><span class="o">[]</span> <span class="n">lengths</span><span class="o">;</span>
+<span class="lineno"> 6</span>     <span class="kd">private</span> <span class="kd">final</span> <span class="n">File</span><span class="o">[]</span> <span class="n">cleanFiles</span><span class="o">;</span>
+<span class="lineno"> 7</span>     <span class="kd">private</span> <span class="kd">final</span> <span class="n">File</span><span class="o">[]</span> <span class="n">dirtyFiles</span><span class="o">;</span>
+<span class="lineno"> 8</span> 
+<span class="lineno"> 9</span>     <span class="cm">/** True if this entry has ever been published. */</span>
+<span class="lineno">10</span>     <span class="kd">private</span> <span class="kt">boolean</span> <span class="n">readable</span><span class="o">;</span>
+<span class="lineno">11</span> 
+<span class="lineno">12</span>     <span class="cm">/** The ongoing edit or null if this entry is not being edited. */</span>
+<span class="lineno">13</span>     <span class="kd">private</span> <span class="n">Editor</span> <span class="n">currentEditor</span><span class="o">;</span>
+<span class="lineno">14</span> 
+<span class="lineno">15</span>     <span class="cm">/** The sequence number of the most recently committed edit to this entry. */</span>
+<span class="lineno">16</span>     <span class="kd">private</span> <span class="kt">long</span> <span class="n">sequenceNumber</span><span class="o">;</span>
+<span class="lineno">17</span> 
+<span class="lineno">18</span>     <span class="kd">private</span> <span class="nf">Entry</span><span class="o">(</span><span class="n">String</span> <span class="n">key</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno">19</span>       <span class="k">this</span><span class="o">.</span><span class="na">key</span> <span class="o">=</span> <span class="n">key</span><span class="o">;</span>
+<span class="lineno">20</span> 
+<span class="lineno">21</span>       <span class="n">lengths</span> <span class="o">=</span> <span class="k">new</span> <span class="kt">long</span><span class="o">[</span><span class="n">valueCount</span><span class="o">];</span>
+<span class="lineno">22</span>       <span class="n">cleanFiles</span> <span class="o">=</span> <span class="k">new</span> <span class="n">File</span><span class="o">[</span><span class="n">valueCount</span><span class="o">];</span>
+<span class="lineno">23</span>       <span class="n">dirtyFiles</span> <span class="o">=</span> <span class="k">new</span> <span class="n">File</span><span class="o">[</span><span class="n">valueCount</span><span class="o">];</span>
+<span class="lineno">24</span> 
+<span class="lineno">25</span>       <span class="c1">// The names are repetitive so re-use the same builder to avoid allocations.</span>
+<span class="lineno">26</span>       <span class="n">StringBuilder</span> <span class="n">fileBuilder</span> <span class="o">=</span> <span class="k">new</span> <span class="n">StringBuilder</span><span class="o">(</span><span class="n">key</span><span class="o">).</span><span class="na">append</span><span class="o">(</span><span class="sc">&#39;.&#39;</span><span class="o">);</span>
+<span class="lineno">27</span>       <span class="kt">int</span> <span class="n">truncateTo</span> <span class="o">=</span> <span class="n">fileBuilder</span><span class="o">.</span><span class="na">length</span><span class="o">();</span>
+<span class="lineno">28</span>       <span class="k">for</span> <span class="o">(</span><span class="kt">int</span> <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span><span class="o">;</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="n">valueCount</span><span class="o">;</span> <span class="n">i</span><span class="o">++)</span> <span class="o">{</span>
+<span class="lineno">29</span>         <span class="n">fileBuilder</span><span class="o">.</span><span class="na">append</span><span class="o">(</span><span class="n">i</span><span class="o">);</span>
+<span class="lineno">30</span>         <span class="n">cleanFiles</span><span class="o">[</span><span class="n">i</span><span class="o">]</span> <span class="o">=</span> <span class="k">new</span> <span class="n">File</span><span class="o">(</span><span class="n">directory</span><span class="o">,</span> <span class="n">fileBuilder</span><span class="o">.</span><span class="na">toString</span><span class="o">());</span>
+<span class="lineno">31</span>         <span class="n">fileBuilder</span><span class="o">.</span><span class="na">append</span><span class="o">(</span><span class="s">&quot;.tmp&quot;</span><span class="o">);</span>
+<span class="lineno">32</span>         <span class="n">dirtyFiles</span><span class="o">[</span><span class="n">i</span><span class="o">]</span> <span class="o">=</span> <span class="k">new</span> <span class="n">File</span><span class="o">(</span><span class="n">directory</span><span class="o">,</span> <span class="n">fileBuilder</span><span class="o">.</span><span class="na">toString</span><span class="o">());</span>
+<span class="lineno">33</span>         <span class="n">fileBuilder</span><span class="o">.</span><span class="na">setLength</span><span class="o">(</span><span class="n">truncateTo</span><span class="o">);</span>
+<span class="lineno">34</span>       <span class="o">}</span>
+<span class="lineno">35</span>     <span class="o">}</span></code></pre></div>
+
+<p>Entry中维护了一堆dirtyFiles和cleanFiles，以及每个文件的length，在构造函数中，valueCount就是每个entry对应的文件数量，这是初始化的时候已经约定好的了，然后根据这个valueCount创建对应数量的文件，以后的数据就会写入到这些文件中</p>
+
+<p>再来看看Editor是怎么创建的：</p>
+
+<div class="highlight"><pre><code class="java"><span class="lineno">1</span> <span class="kd">public</span> <span class="kd">final</span> <span class="kd">class</span> <span class="nc">Editor</span> <span class="o">{</span>
+<span class="lineno">2</span>     <span class="kd">private</span> <span class="kd">final</span> <span class="n">Entry</span> <span class="n">entry</span><span class="o">;</span>
+<span class="lineno">3</span>     <span class="kd">private</span> <span class="kd">final</span> <span class="kt">boolean</span><span class="o">[]</span> <span class="n">written</span><span class="o">;</span>
+<span class="lineno">4</span>     <span class="kd">private</span> <span class="kt">boolean</span> <span class="n">done</span><span class="o">;</span>
+<span class="lineno">5</span> 
+<span class="lineno">6</span>     <span class="kd">private</span> <span class="nf">Editor</span><span class="o">(</span><span class="n">Entry</span> <span class="n">entry</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno">7</span>       <span class="k">this</span><span class="o">.</span><span class="na">entry</span> <span class="o">=</span> <span class="n">entry</span><span class="o">;</span>
+<span class="lineno">8</span>       <span class="k">this</span><span class="o">.</span><span class="na">written</span> <span class="o">=</span> <span class="o">(</span><span class="n">entry</span><span class="o">.</span><span class="na">readable</span><span class="o">)</span> <span class="o">?</span> <span class="kc">null</span> <span class="o">:</span> <span class="k">new</span> <span class="kt">boolean</span><span class="o">[</span><span class="n">valueCount</span><span class="o">];</span>
+<span class="lineno">9</span>     <span class="o">}</span></code></pre></div>
+
+<p>讲道理，Editor里没什么东西，更像是一个entry的包裹类，wriiten数组默认值是false</p>
+
+<p>好了，这样editor就拿到了，在lruEntries中的索引也已经创建好了，journal中标记为DIRTY的一条新的操作记录也有了，好像还有点什么事没干，oh，我们的数据还没写入disk中呢 - - ， 我们用okhttp中cache的例子来看看是怎么使用这个editor去写入数据到文件中的：</p>
+
+<div class="highlight"><pre><code class="java"><span class="lineno">1</span> <span class="kd">public</span> <span class="kt">void</span> <span class="nf">writeTo</span><span class="o">(</span><span class="n">DiskLruCache</span><span class="o">.</span><span class="na">Editor</span> <span class="n">editor</span><span class="o">)</span> <span class="kd">throws</span> <span class="n">IOException</span> <span class="o">{</span>
+<span class="lineno">2</span>       <span class="n">BufferedSink</span> <span class="n">sink</span> <span class="o">=</span> <span class="n">Okio</span><span class="o">.</span><span class="na">buffer</span><span class="o">(</span><span class="n">editor</span><span class="o">.</span><span class="na">newSink</span><span class="o">(</span><span class="n">ENTRY_METADATA</span><span class="o">));</span>
+<span class="lineno">3</span> 
+<span class="lineno">4</span>       <span class="n">sink</span><span class="o">.</span><span class="na">writeUtf8</span><span class="o">(</span><span class="n">url</span><span class="o">);</span>
+<span class="lineno">5</span>       <span class="n">sink</span><span class="o">.</span><span class="na">writeByte</span><span class="o">(</span><span class="sc">&#39;\n&#39;</span><span class="o">);</span>
+<span class="lineno">6</span>       <span class="c1">// sink write a lot of data</span>
+<span class="lineno">7</span> 
+<span class="lineno">8</span>       <span class="n">sink</span><span class="o">.</span><span class="na">close</span><span class="o">();</span>
+<span class="lineno">9</span>     <span class="o">}</span></code></pre></div>
+
+<p>很简单是不是，就是通过editor去获取一个sink，然后写入数据，最后关闭就行了(ENTRY_METADATA == 1), 剩下的问题就是newSink做了什么：</p>
+
+<div class="highlight"><pre><code class="java"><span class="lineno"> 1</span> <span class="cm">/**</span>
+<span class="lineno"> 2</span> <span class="cm">     * Returns a new unbuffered output stream to write the value at {@code index}. If the underlying</span>
+<span class="lineno"> 3</span> <span class="cm">     * output stream encounters errors when writing to the filesystem, this edit will be aborted</span>
+<span class="lineno"> 4</span> <span class="cm">     * when {@link #commit} is called. The returned output stream does not throw IOExceptions.</span>
+<span class="lineno"> 5</span> <span class="cm">     */</span>
+<span class="lineno"> 6</span>     <span class="kd">public</span> <span class="n">Sink</span> <span class="nf">newSink</span><span class="o">(</span><span class="kt">int</span> <span class="n">index</span><span class="o">)</span> <span class="kd">throws</span> <span class="n">IOException</span> <span class="o">{</span>
+<span class="lineno"> 7</span>       <span class="kd">synchronized</span> <span class="o">(</span><span class="n">DiskLruCache</span><span class="o">.</span><span class="na">this</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno"> 8</span>         <span class="k">if</span> <span class="o">(</span><span class="n">done</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno"> 9</span>           <span class="k">throw</span> <span class="k">new</span> <span class="nf">IllegalStateException</span><span class="o">();</span>
+<span class="lineno">10</span>         <span class="o">}</span>
+<span class="lineno">11</span>         <span class="k">if</span> <span class="o">(</span><span class="n">entry</span><span class="o">.</span><span class="na">currentEditor</span> <span class="o">!=</span> <span class="k">this</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno">12</span>           <span class="k">return</span> <span class="n">NULL_SINK</span><span class="o">;</span>
+<span class="lineno">13</span>         <span class="o">}</span>
+<span class="lineno">14</span>         <span class="k">if</span> <span class="o">(!</span><span class="n">entry</span><span class="o">.</span><span class="na">readable</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno">15</span>           <span class="n">written</span><span class="o">[</span><span class="n">index</span><span class="o">]</span> <span class="o">=</span> <span class="kc">true</span><span class="o">;</span>
+<span class="lineno">16</span>         <span class="o">}</span>
+<span class="lineno">17</span>         <span class="n">File</span> <span class="n">dirtyFile</span> <span class="o">=</span> <span class="n">entry</span><span class="o">.</span><span class="na">dirtyFiles</span><span class="o">[</span><span class="n">index</span><span class="o">];</span>
+<span class="lineno">18</span>         <span class="n">Sink</span> <span class="n">sink</span><span class="o">;</span>
+<span class="lineno">19</span>         <span class="k">try</span> <span class="o">{</span>
+<span class="lineno">20</span>           <span class="n">sink</span> <span class="o">=</span> <span class="n">fileSystem</span><span class="o">.</span><span class="na">sink</span><span class="o">(</span><span class="n">dirtyFile</span><span class="o">);</span>
+<span class="lineno">21</span>         <span class="o">}</span> <span class="k">catch</span> <span class="o">(</span><span class="n">FileNotFoundException</span> <span class="n">e</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno">22</span>           <span class="k">return</span> <span class="n">NULL_SINK</span><span class="o">;</span>
+<span class="lineno">23</span>         <span class="o">}</span>
+<span class="lineno">24</span>         <span class="k">return</span> <span class="k">new</span> <span class="nf">FaultHidingSink</span><span class="o">(</span><span class="n">sink</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno">25</span>           <span class="nd">@Override</span> <span class="kd">protected</span> <span class="kt">void</span> <span class="n">onException</span><span class="o">(</span><span class="n">IOException</span> <span class="n">e</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno">26</span>             <span class="kd">synchronized</span> <span class="o">(</span><span class="n">DiskLruCache</span><span class="o">.</span><span class="na">this</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno">27</span>               <span class="n">detach</span><span class="o">();}}};</span>
+<span class="lineno">28</span>       <span class="o">}</span>
+<span class="lineno">29</span>     <span class="o">}</span></code></pre></div>
+
+<p>如果done的话就不让我们继续操作啦(done会在commit里设置)，并且关联entry的currentEditor必须是自己才可以进行操作，然后会把对应index的written设为true，表示会进行写操作，最后返回一个对第index号的dirtyFile操作的一个sink，以后就可以通过使用它来把数据写到dirtyFile里了</p>
+
+<p>好了，当把数据写完之后，一定不要忘了使用commit操作来对这些数据进行提交，我们要把dirtyFiles里的内容移到cleanFiles里才能够让别的editor访问到：</p>
+
+<div class="highlight"><pre><code class="java"><span class="lineno"> 1</span> <span class="kd">public</span> <span class="kt">void</span> <span class="nf">commit</span><span class="o">()</span> <span class="kd">throws</span> <span class="n">IOException</span> <span class="o">{</span>
+<span class="lineno"> 2</span>       <span class="kd">synchronized</span> <span class="o">(</span><span class="n">DiskLruCache</span><span class="o">.</span><span class="na">this</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno"> 3</span>         <span class="k">if</span> <span class="o">(</span><span class="n">done</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno"> 4</span>           <span class="k">throw</span> <span class="k">new</span> <span class="nf">IllegalStateException</span><span class="o">();</span>
+<span class="lineno"> 5</span>         <span class="o">}</span>
+<span class="lineno"> 6</span>         <span class="k">if</span> <span class="o">(</span><span class="n">entry</span><span class="o">.</span><span class="na">currentEditor</span> <span class="o">==</span> <span class="k">this</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno"> 7</span>           <span class="n">completeEdit</span><span class="o">(</span><span class="k">this</span><span class="o">,</span> <span class="kc">true</span><span class="o">);</span>
+<span class="lineno"> 8</span>         <span class="o">}</span>
+<span class="lineno"> 9</span>         <span class="n">done</span> <span class="o">=</span> <span class="kc">true</span><span class="o">;</span>
+<span class="lineno">10</span>       <span class="o">}</span>
+<span class="lineno">11</span>     <span class="o">}</span></code></pre></div>
+
+<p>这里只是对done做了一些操作，关键还是在completeEdit里：</p>
+
+<div class="highlight"><pre><code class="java"><span class="lineno"> 1</span> <span class="kd">private</span> <span class="kd">synchronized</span> <span class="kt">void</span> <span class="nf">completeEdit</span><span class="o">(</span><span class="n">Editor</span> <span class="n">editor</span><span class="o">,</span> <span class="kt">boolean</span> <span class="n">success</span><span class="o">)</span> <span class="kd">throws</span> <span class="n">IOException</span> <span class="o">{</span>
+<span class="lineno"> 2</span>     <span class="n">Entry</span> <span class="n">entry</span> <span class="o">=</span> <span class="n">editor</span><span class="o">.</span><span class="na">entry</span><span class="o">;</span>
+<span class="lineno"> 3</span>     <span class="k">if</span> <span class="o">(</span><span class="n">entry</span><span class="o">.</span><span class="na">currentEditor</span> <span class="o">!=</span> <span class="n">editor</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno"> 4</span>       <span class="k">throw</span> <span class="k">new</span> <span class="nf">IllegalStateException</span><span class="o">();</span>
+<span class="lineno"> 5</span>     <span class="o">}</span>
+<span class="lineno"> 6</span> 
+<span class="lineno"> 7</span>     <span class="c1">// If this edit is creating the entry for the first time, every index must have a value.</span>
+<span class="lineno"> 8</span>     <span class="k">if</span> <span class="o">(</span><span class="n">success</span> <span class="o">&amp;&amp;</span> <span class="o">!</span><span class="n">entry</span><span class="o">.</span><span class="na">readable</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno"> 9</span>       <span class="k">for</span> <span class="o">(</span><span class="kt">int</span> <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span><span class="o">;</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="n">valueCount</span><span class="o">;</span> <span class="n">i</span><span class="o">++)</span> <span class="o">{</span>
+<span class="lineno">10</span>         <span class="k">if</span> <span class="o">(!</span><span class="n">editor</span><span class="o">.</span><span class="na">written</span><span class="o">[</span><span class="n">i</span><span class="o">])</span> <span class="o">{</span>
+<span class="lineno">11</span>           <span class="n">editor</span><span class="o">.</span><span class="na">abort</span><span class="o">();</span>
+<span class="lineno">12</span>           <span class="k">throw</span> <span class="k">new</span> <span class="nf">IllegalStateException</span><span class="o">(</span><span class="s">&quot;Newly created entry didn&#39;t create value for index &quot;</span> <span class="o">+</span> <span class="n">i</span><span class="o">);</span>
+<span class="lineno">13</span>         <span class="o">}</span>
+<span class="lineno">14</span>         <span class="k">if</span> <span class="o">(!</span><span class="n">fileSystem</span><span class="o">.</span><span class="na">exists</span><span class="o">(</span><span class="n">entry</span><span class="o">.</span><span class="na">dirtyFiles</span><span class="o">[</span><span class="n">i</span><span class="o">]))</span> <span class="o">{</span>
+<span class="lineno">15</span>           <span class="n">editor</span><span class="o">.</span><span class="na">abort</span><span class="o">();</span>
+<span class="lineno">16</span>           <span class="k">return</span><span class="o">;</span>
+<span class="lineno">17</span>         <span class="o">}</span>
+<span class="lineno">18</span>       <span class="o">}</span>
+<span class="lineno">19</span>     <span class="o">}</span>
+<span class="lineno">20</span> 
+<span class="lineno">21</span>     <span class="k">for</span> <span class="o">(</span><span class="kt">int</span> <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span><span class="o">;</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="n">valueCount</span><span class="o">;</span> <span class="n">i</span><span class="o">++)</span> <span class="o">{</span>
+<span class="lineno">22</span>       <span class="n">File</span> <span class="n">dirty</span> <span class="o">=</span> <span class="n">entry</span><span class="o">.</span><span class="na">dirtyFiles</span><span class="o">[</span><span class="n">i</span><span class="o">];</span>
+<span class="lineno">23</span>       <span class="k">if</span> <span class="o">(</span><span class="n">success</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno">24</span>         <span class="k">if</span> <span class="o">(</span><span class="n">fileSystem</span><span class="o">.</span><span class="na">exists</span><span class="o">(</span><span class="n">dirty</span><span class="o">))</span> <span class="o">{</span>
+<span class="lineno">25</span>           <span class="n">File</span> <span class="n">clean</span> <span class="o">=</span> <span class="n">entry</span><span class="o">.</span><span class="na">cleanFiles</span><span class="o">[</span><span class="n">i</span><span class="o">];</span>
+<span class="lineno">26</span>           <span class="n">fileSystem</span><span class="o">.</span><span class="na">rename</span><span class="o">(</span><span class="n">dirty</span><span class="o">,</span> <span class="n">clean</span><span class="o">);</span>
+<span class="lineno">27</span>           <span class="kt">long</span> <span class="n">oldLength</span> <span class="o">=</span> <span class="n">entry</span><span class="o">.</span><span class="na">lengths</span><span class="o">[</span><span class="n">i</span><span class="o">];</span>
+<span class="lineno">28</span>           <span class="kt">long</span> <span class="n">newLength</span> <span class="o">=</span> <span class="n">fileSystem</span><span class="o">.</span><span class="na">size</span><span class="o">(</span><span class="n">clean</span><span class="o">);</span>
+<span class="lineno">29</span>           <span class="n">entry</span><span class="o">.</span><span class="na">lengths</span><span class="o">[</span><span class="n">i</span><span class="o">]</span> <span class="o">=</span> <span class="n">newLength</span><span class="o">;</span>
+<span class="lineno">30</span>           <span class="n">size</span> <span class="o">=</span> <span class="n">size</span> <span class="o">-</span> <span class="n">oldLength</span> <span class="o">+</span> <span class="n">newLength</span><span class="o">;</span>
+<span class="lineno">31</span>         <span class="o">}</span>
+<span class="lineno">32</span>       <span class="o">}</span> <span class="k">else</span> <span class="o">{</span>
+<span class="lineno">33</span>         <span class="n">fileSystem</span><span class="o">.</span><span class="na">delete</span><span class="o">(</span><span class="n">dirty</span><span class="o">);</span>
+<span class="lineno">34</span>       <span class="o">}</span>
+<span class="lineno">35</span>     <span class="o">}</span>
+<span class="lineno">36</span> 
+<span class="lineno">37</span>     <span class="n">redundantOpCount</span><span class="o">++;</span>
+<span class="lineno">38</span>     <span class="n">entry</span><span class="o">.</span><span class="na">currentEditor</span> <span class="o">=</span> <span class="kc">null</span><span class="o">;</span>
+<span class="lineno">39</span>     <span class="k">if</span> <span class="o">(</span><span class="n">entry</span><span class="o">.</span><span class="na">readable</span> <span class="o">|</span> <span class="n">success</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno">40</span>       <span class="n">entry</span><span class="o">.</span><span class="na">readable</span> <span class="o">=</span> <span class="kc">true</span><span class="o">;</span>
+<span class="lineno">41</span>       <span class="n">journalWriter</span><span class="o">.</span><span class="na">writeUtf8</span><span class="o">(</span><span class="n">CLEAN</span><span class="o">).</span><span class="na">writeByte</span><span class="o">(</span><span class="sc">&#39; &#39;</span><span class="o">);</span>
+<span class="lineno">42</span>       <span class="n">journalWriter</span><span class="o">.</span><span class="na">writeUtf8</span><span class="o">(</span><span class="n">entry</span><span class="o">.</span><span class="na">key</span><span class="o">);</span>
+<span class="lineno">43</span>       <span class="n">entry</span><span class="o">.</span><span class="na">writeLengths</span><span class="o">(</span><span class="n">journalWriter</span><span class="o">);</span>
+<span class="lineno">44</span>       <span class="n">journalWriter</span><span class="o">.</span><span class="na">writeByte</span><span class="o">(</span><span class="sc">&#39;\n&#39;</span><span class="o">);</span>
+<span class="lineno">45</span>       <span class="k">if</span> <span class="o">(</span><span class="n">success</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno">46</span>         <span class="n">entry</span><span class="o">.</span><span class="na">sequenceNumber</span> <span class="o">=</span> <span class="n">nextSequenceNumber</span><span class="o">++;</span>
+<span class="lineno">47</span>       <span class="o">}</span>
+<span class="lineno">48</span>     <span class="o">}</span> <span class="k">else</span> <span class="o">{</span>
+<span class="lineno">49</span>       <span class="n">lruEntries</span><span class="o">.</span><span class="na">remove</span><span class="o">(</span><span class="n">entry</span><span class="o">.</span><span class="na">key</span><span class="o">);</span>
+<span class="lineno">50</span>       <span class="n">journalWriter</span><span class="o">.</span><span class="na">writeUtf8</span><span class="o">(</span><span class="n">REMOVE</span><span class="o">).</span><span class="na">writeByte</span><span class="o">(</span><span class="sc">&#39; &#39;</span><span class="o">);</span>
+<span class="lineno">51</span>       <span class="n">journalWriter</span><span class="o">.</span><span class="na">writeUtf8</span><span class="o">(</span><span class="n">entry</span><span class="o">.</span><span class="na">key</span><span class="o">);</span>
+<span class="lineno">52</span>       <span class="n">journalWriter</span><span class="o">.</span><span class="na">writeByte</span><span class="o">(</span><span class="sc">&#39;\n&#39;</span><span class="o">);</span>
+<span class="lineno">53</span>     <span class="o">}</span>
+<span class="lineno">54</span>     <span class="n">journalWriter</span><span class="o">.</span><span class="na">flush</span><span class="o">();</span>
+<span class="lineno">55</span> 
+<span class="lineno">56</span>     <span class="k">if</span> <span class="o">(</span><span class="n">size</span> <span class="o">&gt;</span> <span class="n">maxSize</span> <span class="o">||</span> <span class="n">journalRebuildRequired</span><span class="o">())</span> <span class="o">{</span>
+<span class="lineno">57</span>       <span class="n">executor</span><span class="o">.</span><span class="na">execute</span><span class="o">(</span><span class="n">cleanupRunnable</span><span class="o">);</span>
+<span class="lineno">58</span>     <span class="o">}</span>
+<span class="lineno">59</span>   <span class="o">}</span></code></pre></div>
+
+<ul>
+  <li>
+    <p>首先要明确第二个参数success代表是否要写回entry里的数据</p>
+  </li>
+  <li>
+    <p>8-19行，如果是第一次写回，必须保证每个index里要有数据，这是为了保证数据完整性</p>
+  </li>
+  <li>
+    <p>21-35行，如果是要写回，就把dirtyFile重命名为cleanFile，这就完成了把数据转移到cleanFile里的过程;如果不是，那就删除dirtyFile，表示放弃这次修改</p>
+  </li>
+  <li>
+    <p>39-54行，将对应的操作写入到journal里，如果commit次数很多的话，会尝试cleanup操作</p>
+  </li>
+</ul>
+
+<p>这样下来数据都写进cleanFile啦，currentEditor也重新设成了null，这个写入的流程就结束了</p>
+
+<p>再来看看是怎么读的：</p>
+
+<div class="highlight"><pre><code class="java"><span class="lineno"> 1</span> <span class="cm">/**</span>
+<span class="lineno"> 2</span> <span class="cm">   * Returns a snapshot of the entry named {@code key}, or null if it doesn&#39;t exist is not currently</span>
+<span class="lineno"> 3</span> <span class="cm">   * readable. If a value is returned, it is moved to the head of the LRU queue.</span>
+<span class="lineno"> 4</span> <span class="cm">   */</span>
+<span class="lineno"> 5</span>   <span class="kd">public</span> <span class="kd">synchronized</span> <span class="n">Snapshot</span> <span class="nf">get</span><span class="o">(</span><span class="n">String</span> <span class="n">key</span><span class="o">)</span> <span class="kd">throws</span> <span class="n">IOException</span> <span class="o">{</span>
+<span class="lineno"> 6</span>     <span class="n">initialize</span><span class="o">();</span>
+<span class="lineno"> 7</span> 
+<span class="lineno"> 8</span>     <span class="n">checkNotClosed</span><span class="o">();</span>
+<span class="lineno"> 9</span>     <span class="n">validateKey</span><span class="o">(</span><span class="n">key</span><span class="o">);</span>
+<span class="lineno">10</span>     <span class="n">Entry</span> <span class="n">entry</span> <span class="o">=</span> <span class="n">lruEntries</span><span class="o">.</span><span class="na">get</span><span class="o">(</span><span class="n">key</span><span class="o">);</span>
+<span class="lineno">11</span>     <span class="k">if</span> <span class="o">(</span><span class="n">entry</span> <span class="o">==</span> <span class="kc">null</span> <span class="o">||</span> <span class="o">!</span><span class="n">entry</span><span class="o">.</span><span class="na">readable</span><span class="o">)</span> <span class="k">return</span> <span class="kc">null</span><span class="o">;</span>
+<span class="lineno">12</span> 
+<span class="lineno">13</span>     <span class="n">Snapshot</span> <span class="n">snapshot</span> <span class="o">=</span> <span class="n">entry</span><span class="o">.</span><span class="na">snapshot</span><span class="o">();</span>
+<span class="lineno">14</span>     <span class="k">if</span> <span class="o">(</span><span class="n">snapshot</span> <span class="o">==</span> <span class="kc">null</span><span class="o">)</span> <span class="k">return</span> <span class="kc">null</span><span class="o">;</span>
+<span class="lineno">15</span> 
+<span class="lineno">16</span>     <span class="n">redundantOpCount</span><span class="o">++;</span>
+<span class="lineno">17</span>     <span class="n">journalWriter</span><span class="o">.</span><span class="na">writeUtf8</span><span class="o">(</span><span class="n">READ</span><span class="o">).</span><span class="na">writeByte</span><span class="o">(</span><span class="sc">&#39; &#39;</span><span class="o">).</span><span class="na">writeUtf8</span><span class="o">(</span><span class="n">key</span><span class="o">).</span><span class="na">writeByte</span><span class="o">(</span><span class="sc">&#39;\n&#39;</span><span class="o">);</span>
+<span class="lineno">18</span>     <span class="k">if</span> <span class="o">(</span><span class="n">journalRebuildRequired</span><span class="o">())</span> <span class="o">{</span>
+<span class="lineno">19</span>       <span class="n">executor</span><span class="o">.</span><span class="na">execute</span><span class="o">(</span><span class="n">cleanupRunnable</span><span class="o">);</span>
+<span class="lineno">20</span>     <span class="o">}</span>
+<span class="lineno">21</span> 
+<span class="lineno">22</span>     <span class="k">return</span> <span class="n">snapshot</span><span class="o">;</span>
+<span class="lineno">23</span>   <span class="o">}</span></code></pre></div>
+
+<p>先会拿到snapshot，然后会用journalWriter向journal文件中写入一条READ记录</p>
+
+<div class="highlight"><pre><code class="java"><span class="lineno"> 1</span> <span class="cm">/**</span>
+<span class="lineno"> 2</span> <span class="cm">     * Returns a snapshot of this entry. This opens all streams eagerly to guarantee that we see a</span>
+<span class="lineno"> 3</span> <span class="cm">     * single published snapshot. If we opened streams lazily then the streams could come from</span>
+<span class="lineno"> 4</span> <span class="cm">     * different edits.</span>
+<span class="lineno"> 5</span> <span class="cm">     */</span>
+<span class="lineno"> 6</span>     <span class="n">Snapshot</span> <span class="nf">snapshot</span><span class="o">()</span> <span class="o">{</span>
+<span class="lineno"> 7</span>       <span class="k">if</span> <span class="o">(!</span><span class="n">Thread</span><span class="o">.</span><span class="na">holdsLock</span><span class="o">(</span><span class="n">DiskLruCache</span><span class="o">.</span><span class="na">this</span><span class="o">))</span> <span class="k">throw</span> <span class="k">new</span> <span class="n">AssertionError</span><span class="o">();</span>
+<span class="lineno"> 8</span> 
+<span class="lineno"> 9</span>       <span class="n">Source</span><span class="o">[]</span> <span class="n">sources</span> <span class="o">=</span> <span class="k">new</span> <span class="n">Source</span><span class="o">[</span><span class="n">valueCount</span><span class="o">];</span>
+<span class="lineno">10</span>       <span class="kt">long</span><span class="o">[]</span> <span class="n">lengths</span> <span class="o">=</span> <span class="k">this</span><span class="o">.</span><span class="na">lengths</span><span class="o">.</span><span class="na">clone</span><span class="o">();</span> <span class="c1">// Defensive copy since these can be zeroed out.</span>
+<span class="lineno">11</span>       <span class="k">try</span> <span class="o">{</span>
+<span class="lineno">12</span>         <span class="k">for</span> <span class="o">(</span><span class="kt">int</span> <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span><span class="o">;</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="n">valueCount</span><span class="o">;</span> <span class="n">i</span><span class="o">++)</span> <span class="o">{</span>
+<span class="lineno">13</span>           <span class="n">sources</span><span class="o">[</span><span class="n">i</span><span class="o">]</span> <span class="o">=</span> <span class="n">fileSystem</span><span class="o">.</span><span class="na">source</span><span class="o">(</span><span class="n">cleanFiles</span><span class="o">[</span><span class="n">i</span><span class="o">]);</span>
+<span class="lineno">14</span>         <span class="o">}</span>
+<span class="lineno">15</span>         <span class="k">return</span> <span class="k">new</span> <span class="nf">Snapshot</span><span class="o">(</span><span class="n">key</span><span class="o">,</span> <span class="n">sequenceNumber</span><span class="o">,</span> <span class="n">sources</span><span class="o">,</span> <span class="n">lengths</span><span class="o">);</span>
+<span class="lineno">16</span>       <span class="o">}</span> <span class="k">catch</span> <span class="o">(</span><span class="n">FileNotFoundException</span> <span class="n">e</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno">17</span>         <span class="c1">// A file must have been deleted manually!</span>
+<span class="lineno">18</span>         <span class="c1">// blahblahblah</span>
+<span class="lineno">19</span>       <span class="o">}</span>
+<span class="lineno">20</span>     <span class="o">}</span>
+<span class="lineno">21</span>   <span class="o">}</span></code></pre></div>
+
+<p>代码看起来乱但其实很见到，就是为每个cleanFiles(验证了之前只能从cleanFiles里读取内容)创建source，并new一个Shanpshot返回，而snapshot也只是一个包装类：</p>
+
+<div class="highlight"><pre><code class="java"><span class="lineno"> 1</span> <span class="cm">/** A snapshot of the values for an entry. */</span>
+<span class="lineno"> 2</span>   <span class="kd">public</span> <span class="kd">final</span> <span class="kd">class</span> <span class="nc">Snapshot</span> <span class="kd">implements</span> <span class="n">Closeable</span> <span class="o">{</span>
+<span class="lineno"> 3</span>     <span class="kd">private</span> <span class="kd">final</span> <span class="n">String</span> <span class="n">key</span><span class="o">;</span>
+<span class="lineno"> 4</span>     <span class="kd">private</span> <span class="kd">final</span> <span class="kt">long</span> <span class="n">sequenceNumber</span><span class="o">;</span>
+<span class="lineno"> 5</span>     <span class="kd">private</span> <span class="kd">final</span> <span class="n">Source</span><span class="o">[]</span> <span class="n">sources</span><span class="o">;</span>
+<span class="lineno"> 6</span>     <span class="kd">private</span> <span class="kd">final</span> <span class="kt">long</span><span class="o">[]</span> <span class="n">lengths</span><span class="o">;</span>
+<span class="lineno"> 7</span> 
+<span class="lineno"> 8</span>     <span class="kd">private</span> <span class="nf">Snapshot</span><span class="o">(</span><span class="n">String</span> <span class="n">key</span><span class="o">,</span> <span class="kt">long</span> <span class="n">sequenceNumber</span><span class="o">,</span> <span class="n">Source</span><span class="o">[]</span> <span class="n">sources</span><span class="o">,</span> <span class="kt">long</span><span class="o">[]</span> <span class="n">lengths</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno"> 9</span>       <span class="k">this</span><span class="o">.</span><span class="na">key</span> <span class="o">=</span> <span class="n">key</span><span class="o">;</span>
+<span class="lineno">10</span>       <span class="k">this</span><span class="o">.</span><span class="na">sequenceNumber</span> <span class="o">=</span> <span class="n">sequenceNumber</span><span class="o">;</span>
+<span class="lineno">11</span>       <span class="k">this</span><span class="o">.</span><span class="na">sources</span> <span class="o">=</span> <span class="n">sources</span><span class="o">;</span>
+<span class="lineno">12</span>       <span class="k">this</span><span class="o">.</span><span class="na">lengths</span> <span class="o">=</span> <span class="n">lengths</span><span class="o">;</span>
+<span class="lineno">13</span>     <span class="o">}</span></code></pre></div>
+
+<p>是不是跟Editor一样，属于装饰模式，通过snapshot的getSource(index)就可以读取内容了</p>
+
+<p>get也讲完了，发现一个特点没有，通过dirty和clean两种文件，可以实现修改和读取同时操作，这样也就提高了系统的吞吐量。我不知道commit后会不会使source失效，没有研究过Okio不敢下定论，如果要我们自己实现的话，一定要注意处理这种情况，可以给每个cleanFile设置一个标志位，并在commit的时候对它上锁，完了修改标志，读取的时候也去用锁的方式去获取这个标志，看看这个数据是否失效。</p>
+
+<p>最后还有一个小点，来看看cleanup做了什么：</p>
+
+<div class="highlight"><pre><code class="java"><span class="lineno"> 1</span> <span class="kd">private</span> <span class="kd">final</span> <span class="n">Runnable</span> <span class="n">cleanupRunnable</span> <span class="o">=</span> <span class="k">new</span> <span class="n">Runnable</span><span class="o">()</span> <span class="o">{</span>
+<span class="lineno"> 2</span>     <span class="kd">public</span> <span class="kt">void</span> <span class="nf">run</span><span class="o">()</span> <span class="o">{</span>
+<span class="lineno"> 3</span>       <span class="kd">synchronized</span> <span class="o">(</span><span class="n">DiskLruCache</span><span class="o">.</span><span class="na">this</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno"> 4</span>         <span class="k">if</span> <span class="o">(!</span><span class="n">initialized</span> <span class="o">|</span> <span class="n">closed</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno"> 5</span>           <span class="k">return</span><span class="o">;</span> <span class="c1">// Nothing to do</span>
+<span class="lineno"> 6</span>         <span class="o">}</span>
+<span class="lineno"> 7</span> 
+<span class="lineno"> 8</span>         <span class="k">try</span> <span class="o">{</span>
+<span class="lineno"> 9</span>           <span class="n">trimToSize</span><span class="o">();</span>
+<span class="lineno">10</span>         <span class="o">}</span> <span class="k">catch</span> <span class="o">(</span><span class="n">IOException</span> <span class="n">ignored</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno">11</span>           <span class="n">mostRecentTrimFailed</span> <span class="o">=</span> <span class="kc">true</span><span class="o">;</span>
+<span class="lineno">12</span>         <span class="o">}</span>
+<span class="lineno">13</span> 
+<span class="lineno">14</span>         <span class="k">try</span> <span class="o">{</span>
+<span class="lineno">15</span>           <span class="k">if</span> <span class="o">(</span><span class="n">journalRebuildRequired</span><span class="o">())</span> <span class="o">{</span>
+<span class="lineno">16</span>             <span class="n">rebuildJournal</span><span class="o">();</span>
+<span class="lineno">17</span>             <span class="n">redundantOpCount</span> <span class="o">=</span> <span class="mi">0</span><span class="o">;</span>
+<span class="lineno">18</span>           <span class="o">}</span>
+<span class="lineno">19</span>         <span class="o">}</span> <span class="k">catch</span> <span class="o">(</span><span class="n">IOException</span> <span class="n">e</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno">20</span>           <span class="n">mostRecentRebuildFailed</span> <span class="o">=</span> <span class="kc">true</span><span class="o">;</span>
+<span class="lineno">21</span>           <span class="n">journalWriter</span> <span class="o">=</span> <span class="n">Okio</span><span class="o">.</span><span class="na">buffer</span><span class="o">(</span><span class="n">NULL_SINK</span><span class="o">);</span>
+<span class="lineno">22</span>         <span class="o">}</span>
+<span class="lineno">23</span>       <span class="o">}</span>
+<span class="lineno">24</span>     <span class="o">}</span>
+<span class="lineno">25</span>   <span class="o">};</span></code></pre></div>
+
+<p>cleanup主要是用来调整整个cache的大小，以防止它过大，同时也能用来rebuildJournal，如果trim或者rebuild不成功，那之前edit里面也是没有办法获取Editor来进行数据修改的操作的<br />
+让我们focus on trimToSize：</p>
+
+<div class="highlight"><pre><code class="java"><span class="lineno"> 1</span> <span class="kd">private</span> <span class="kt">void</span> <span class="nf">trimToSize</span><span class="o">()</span> <span class="kd">throws</span> <span class="n">IOException</span> <span class="o">{</span>
+<span class="lineno"> 2</span>     <span class="k">while</span> <span class="o">(</span><span class="n">size</span> <span class="o">&gt;</span> <span class="n">maxSize</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno"> 3</span>       <span class="n">Entry</span> <span class="n">toEvict</span> <span class="o">=</span> <span class="n">lruEntries</span><span class="o">.</span><span class="na">values</span><span class="o">().</span><span class="na">iterator</span><span class="o">().</span><span class="na">next</span><span class="o">();</span>
+<span class="lineno"> 4</span>       <span class="n">removeEntry</span><span class="o">(</span><span class="n">toEvict</span><span class="o">);</span>
+<span class="lineno"> 5</span>     <span class="o">}</span>
+<span class="lineno"> 6</span>     <span class="n">mostRecentTrimFailed</span> <span class="o">=</span> <span class="kc">false</span><span class="o">;</span>
+<span class="lineno"> 7</span>   <span class="o">}</span>
+<span class="lineno"> 8</span> 
+<span class="lineno"> 9</span> 
+<span class="lineno">10</span>   <span class="kd">private</span> <span class="kt">boolean</span> <span class="nf">removeEntry</span><span class="o">(</span><span class="n">Entry</span> <span class="n">entry</span><span class="o">)</span> <span class="kd">throws</span> <span class="n">IOException</span> <span class="o">{</span>
+<span class="lineno">11</span>     <span class="k">if</span> <span class="o">(</span><span class="n">entry</span><span class="o">.</span><span class="na">currentEditor</span> <span class="o">!=</span> <span class="kc">null</span><span class="o">)</span> <span class="o">{</span>
+<span class="lineno">12</span>       <span class="n">entry</span><span class="o">.</span><span class="na">currentEditor</span><span class="o">.</span><span class="na">detach</span><span class="o">();</span> <span class="c1">// Prevent the edit from completing normally.</span>
+<span class="lineno">13</span>     <span class="o">}</span>
+<span class="lineno">14</span> 
+<span class="lineno">15</span>     <span class="k">for</span> <span class="o">(</span><span class="kt">int</span> <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span><span class="o">;</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="n">valueCount</span><span class="o">;</span> <span class="n">i</span><span class="o">++)</span> <span class="o">{</span>
+<span class="lineno">16</span>       <span class="n">fileSystem</span><span class="o">.</span><span class="na">delete</span><span class="o">(</span><span class="n">entry</span><span class="o">.</span><span class="na">cleanFiles</span><span class="o">[</span><span class="n">i</span><span class="o">]);</span>
+<span class="lineno">17</span>       <span class="n">size</span> <span class="o">-=</span> <span class="n">entry</span><span class="o">.</span><span class="na">lengths</span><span class="o">[</span><span class="n">i</span><span class="o">];</span>
+<span class="lineno">18</span>       <span class="n">entry</span><span class="o">.</span><span class="na">lengths</span><span class="o">[</span><span class="n">i</span><span class="o">]</span> <span class="o">=</span> <span class="mi">0</span><span class="o">;</span>
+<span class="lineno">19</span>     <span class="o">}</span>
+<span class="lineno">20</span> 
+<span class="lineno">21</span>     <span class="n">redundantOpCount</span><span class="o">++;</span>
+<span class="lineno">22</span>     <span class="n">journalWriter</span><span class="o">.</span><span class="na">writeUtf8</span><span class="o">(</span><span class="n">REMOVE</span><span class="o">).</span><span class="na">writeByte</span><span class="o">(</span><span class="sc">&#39; &#39;</span><span class="o">).</span><span class="na">writeUtf8</span><span class="o">(</span><span class="n">entry</span><span class="o">.</span><span class="na">key</span><span class="o">).</span><span class="na">writeByte</span><span class="o">(</span><span class="sc">&#39;\n&#39;</span><span class="o">);</span>
+<span class="lineno">23</span>     <span class="n">lruEntries</span><span class="o">.</span><span class="na">remove</span><span class="o">(</span><span class="n">entry</span><span class="o">.</span><span class="na">key</span><span class="o">);</span>
+<span class="lineno">24</span> 
+<span class="lineno">25</span>     <span class="k">if</span> <span class="o">(</span><span class="n">journalRebuildRequired</span><span class="o">())</span> <span class="o">{</span>
+<span class="lineno">26</span>       <span class="n">executor</span><span class="o">.</span><span class="na">execute</span><span class="o">(</span><span class="n">cleanupRunnable</span><span class="o">);</span>
+<span class="lineno">27</span>     <span class="o">}</span>
+<span class="lineno">28</span> 
+<span class="lineno">29</span>     <span class="k">return</span> <span class="kc">true</span><span class="o">;</span>
+<span class="lineno">30</span>   <span class="o">}</span></code></pre></div>
+
+<p>trimToSize仅仅是遍历lruEntries(注意，这个遍历可是通过accessOrder来的，也就是隐含了LRU这个算法)，来一个一个移除entry直到size小于maxSize
+而removeEntry操作就是将editor里的dirtyFiles以及cleanFiles进行删除就是了，同时要向journal文件里写入REMOVE操作，以及删除lruEntries里面的记录</p>
+
+<h2 id="section"><em>总结</em></h2>
+
+<ul>
+  <li>
+    <p>LinkedHashMap可以实现LRU算法，并且在这个case里，它被用作对DiskCache的内存索引</p>
+  </li>
+  <li>
+    <p>告诉你们一个秘密，Universal-Imager-Loader里面的DiskLruCache的实现跟这里的一模一样，除了io使用inputstream/outputstream</p>
+  </li>
+  <li>
+    <p>使用LinkedHashMap和journal文件同时记录做过的操作，其实也就是有索引了，这样就相当于有两个备份，可以互相恢复状态</p>
+  </li>
+  <li>
+    <p>通过dirtyFiles和cleanFiles，可以实现更新和读取同时操作，在commit的时候将cleanFiles的内容进行更新就好了</p>
+  </li>
+  <li>
+    <p>对于io这块真的没有研究过，有空一定要好好研究一下</p>
+  </li>
+</ul>
 
 
   </article>
