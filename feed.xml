@@ -7,6 +7,82 @@
     <atom:link href="http://moonfacex.github.io/blog/feed.xml" rel="self" type="application/rss+xml" />
     
       <item>
+        <title>Universal-Image-Loader 的一个bug分析</title>
+        <description>&lt;p&gt;提起&lt;a href=&quot;https://github.com/nostra13/Android-Universal-Image-Loader&quot;&gt;Universal-Image-Loader&lt;/a&gt;，像我一样的这种小型开发者一定不会陌生，作为一个开源的Android的图片加载框架，它是异常的火爆，相比与glide、picasso、fresco等，受欢迎程度也相对更高一点&lt;/p&gt;
+
+&lt;p&gt;其实平时我使用UIL的时候，也就是无脑用displayImage(url, imageView),但直到有一天，出现了一个奇怪的现象：&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;
+    &lt;p&gt;我在listview的adapter中，在getView方法里使用displayImage来加载listItem要显示的图片&lt;/p&gt;
+  &lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;imageView先是显示loading默认图片，然后加载出真正的图片&lt;/p&gt;
+  &lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;此时！！！不去操作这个listview，仅仅是让它notifyDataSetChanged&lt;/p&gt;
+  &lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;奇怪的事情发生了&lt;/p&gt;
+  &lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;imageView闪烁了一下loading图片，再重新加载回了真实图片&lt;/p&gt;
+  &lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;那么问题来了，这是什么鬼？
+因此就去看了一下UIL的源码，讲道理，这个框架的逻辑还是非常清晰的，并且功能也很强大，很多网上的blog也都去分析了，我在此就不具体介绍了。
+我们主要关注上述bug是如何产生的：&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;
+    &lt;p&gt;UIL有两级缓存，memCache和diskCache，要注意的是，这两个缓存的key是不一样的，这是问题的关键&lt;/p&gt;
+  &lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;memCache的key的格式是url_viewWidth*viewHeight, 而diskCache的key就是url&lt;/p&gt;
+  &lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;UIL加载图片的大致流程是：先去memCache里找，没有的话，去diskCache里找，再没有，就下载，然后resize成合适大小的bitmap，最后放入两级cache中，再提交到主线程里display&lt;/p&gt;
+  &lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;但发现没有，&lt;font color=&quot;red&quot;&gt;getView中，第一次将convertedView infilate进来的时候，这个itemView其实是没有进行过measure、layout操作的&lt;/font&gt;，因此第一次生成的cacheKey的width和height其实是一个配置UIL时设置的一个默认值&lt;/p&gt;
+  &lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;那么当第二次getView的时候，itemView是量好了的，此时生成的cacheKey与第一次生成的cacheKey其实是不一样的，那么在memCache中找这个bitmap的时候，其实是找不到的，这个时候，UIL会将图片设为默认的loading图片，然后再扔到后台线程池中，去diskCache找，这就造成了会出现loading图片的状况&lt;/p&gt;
+  &lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;好在diskCache里的key是url，那么就并不用重新去网络上下载，直接从disk里读取就行了，这就是为什么真正图片马上又会显示出来的原因&lt;/p&gt;
+  &lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;hr /&gt;
+
+&lt;p&gt;现在我们bug的问题找到了，如何去解决它呢？
+我给出的思路是：&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;
+    &lt;p&gt;在ImageAware中增加一个boolean类型的变量叫做isDefaultSize，用来表示这个view是否被测量过(如果没有经历过layout，那么此view的mLeft、mRight、mTop、mBottom都为0, 因此getWidth和getHeight返回的都是0)&lt;/p&gt;
+  &lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;在生成memCacheKey的时候就设置这个isDefaultSize&lt;/p&gt;
+  &lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;在下载完并resize完图片后，再display操作前，看看这个ImageAware的isDefaultSize，如果说false，代表已经量好了，继续display;如果为true，那就用handler.post一个runnable，里面重新做一遍displayImage(url, imageView),因为handler.post可以保证post进去的runnable肯定在view都draw完后进行，这时候view已经量好了，并且图片也存在disk中了，那么多费一点功夫，重新去disk里读一遍，虽然效率上有损失，但是保证了上述的bug不会再出现&lt;/p&gt;
+  &lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&quot;section&quot;&gt;&lt;em&gt;总结&lt;/em&gt;&lt;/h2&gt;
+
+&lt;p&gt;我知道我的解决方法可能不是最好的，在有大量图片要加载的情况下，这种方法会造成第一次加载的时候速度降低，但如果在cacheKey中不考虑ImageView的大小的话，对于内存是不友好的，而measure和layout也是老生常谈的绕不过的梗，我觉得在这两者之间，我选择第一次加载慢一点，如果你有什么好的建议，欢迎发邮件给我，大家一起讨论讨论。&lt;/p&gt;
+
+</description>
+        <pubDate>Fri, 22 Apr 2016 21:01:47 +0800</pubDate>
+        <link>http://moonfacex.github.io/blog/android/2016/04/22/imager_loader_bug.html</link>
+        <guid isPermaLink="true">http://moonfacex.github.io/blog/android/2016/04/22/imager_loader_bug.html</guid>
+      </item>
+    
+      <item>
         <title>TouchEvent从何而来 理清Activity、Window、ViewRootImpl、DecorView</title>
         <description>&lt;p&gt;我们都知道在android中，touch事件是从顶层的viewGroup通过dispatchTouchEvent一层一层传给子view的。那么顶层的viewGroup是谁？是不是activity？是谁产生了touch事件？这些问题一直徘徊在我脑中，今天就来理一下。
 要知道touch事件的来源，就不得不说到activity、window、viewRootImpl、decorView、windowMangaer等一系列的东西，把它们的关系理顺了，才能搞明白touch事件是怎么来的。&lt;/p&gt;
@@ -4854,52 +4930,6 @@ executing application code on every frame, and is thus much more efficient.
         <pubDate>Fri, 01 Apr 2016 16:55:47 +0800</pubDate>
         <link>http://moonfacex.github.io/blog/android/2016/04/01/sparsearray_and_arraymap.html</link>
         <guid isPermaLink="true">http://moonfacex.github.io/blog/android/2016/04/01/sparsearray_and_arraymap.html</guid>
-      </item>
-    
-      <item>
-        <title>自动装箱与拆箱</title>
-        <description>&lt;p&gt;进入Locks研究之前，先看一段有趣的代码&lt;/p&gt;
-
-&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;java&quot;&gt;&lt;span class=&quot;lineno&quot;&gt; 1&lt;/span&gt; &lt;span class=&quot;kd&quot;&gt;public&lt;/span&gt; &lt;span class=&quot;kd&quot;&gt;static&lt;/span&gt; &lt;span class=&quot;kt&quot;&gt;void&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;main&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;String&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;[]&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;args&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;
-&lt;span class=&quot;lineno&quot;&gt; 2&lt;/span&gt;         &lt;span class=&quot;n&quot;&gt;Integer&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;a&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;;&lt;/span&gt;
-&lt;span class=&quot;lineno&quot;&gt; 3&lt;/span&gt;         &lt;span class=&quot;n&quot;&gt;Integer&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;b&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;2&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;;&lt;/span&gt;
-&lt;span class=&quot;lineno&quot;&gt; 4&lt;/span&gt;         &lt;span class=&quot;n&quot;&gt;Integer&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;c&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;3&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;;&lt;/span&gt;
-&lt;span class=&quot;lineno&quot;&gt; 5&lt;/span&gt;         &lt;span class=&quot;n&quot;&gt;Integer&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;d&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;3&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;;&lt;/span&gt;
-&lt;span class=&quot;lineno&quot;&gt; 6&lt;/span&gt;         &lt;span class=&quot;n&quot;&gt;Integer&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;e&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;321&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;;&lt;/span&gt;
-&lt;span class=&quot;lineno&quot;&gt; 7&lt;/span&gt;         &lt;span class=&quot;n&quot;&gt;Integer&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;f&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;321&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;;&lt;/span&gt;
-&lt;span class=&quot;lineno&quot;&gt; 8&lt;/span&gt;         &lt;span class=&quot;n&quot;&gt;Long&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;g&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;3L&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;;&lt;/span&gt;
-&lt;span class=&quot;lineno&quot;&gt; 9&lt;/span&gt;         &lt;span class=&quot;n&quot;&gt;System&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;out&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;println&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;c&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;==&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;d&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;);&lt;/span&gt;
-&lt;span class=&quot;lineno&quot;&gt;10&lt;/span&gt;         &lt;span class=&quot;n&quot;&gt;System&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;out&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;println&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;e&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;==&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;f&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;);&lt;/span&gt;
-&lt;span class=&quot;lineno&quot;&gt;11&lt;/span&gt;         &lt;span class=&quot;n&quot;&gt;System&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;out&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;println&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;c&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;==&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;a&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;+&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;b&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;));&lt;/span&gt;
-&lt;span class=&quot;lineno&quot;&gt;12&lt;/span&gt;         &lt;span class=&quot;n&quot;&gt;System&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;out&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;println&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;c&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;equals&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;a&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;+&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;b&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;));&lt;/span&gt;
-&lt;span class=&quot;lineno&quot;&gt;13&lt;/span&gt;         &lt;span class=&quot;n&quot;&gt;System&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;out&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;println&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;g&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;==&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;a&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;+&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;b&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;));&lt;/span&gt;
-&lt;span class=&quot;lineno&quot;&gt;14&lt;/span&gt;         &lt;span class=&quot;n&quot;&gt;System&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;out&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;println&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;g&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;equals&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;a&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;+&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;b&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;));&lt;/span&gt;
-&lt;span class=&quot;lineno&quot;&gt;15&lt;/span&gt;     &lt;span class=&quot;o&quot;&gt;}&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
-
-&lt;p&gt;你猜我知不知道结果？ 哼哼，还是直接给一个总结吧：&lt;/p&gt;
-
-&lt;ul&gt;
-  &lt;li&gt;
-    &lt;p&gt;AutoBoxing： 将primitive type转换成wrapper class&lt;/p&gt;
-  &lt;/li&gt;
-  &lt;li&gt;
-    &lt;p&gt;Unboxing：反之&lt;/p&gt;
-  &lt;/li&gt;
-  &lt;li&gt;
-    &lt;p&gt;Integer a = 1     &amp;lt;–编译–&amp;gt;   Integer a = Integer.valueOf(1)&lt;/p&gt;
-  &lt;/li&gt;
-  &lt;li&gt;
-    &lt;p&gt;做运算操作时会拆箱， == 的时候再装箱&lt;/p&gt;
-  &lt;/li&gt;
-  &lt;li&gt;
-    &lt;p&gt;-128 – 127 之间的字面量，无论是Long 还是 Short 还是 Integer， 编译完后会放入全局的常量池而不是在运行时在堆上去new， 这些变量会引用常量池中的地址&lt;/p&gt;
-  &lt;/li&gt;
-&lt;/ul&gt;
-
-</description>
-        <pubDate>Thu, 31 Mar 2016 23:10:47 +0800</pubDate>
-        <link>http://moonfacex.github.io/blog/java/2016/03/31/boxing_and_unboxing.html</link>
-        <guid isPermaLink="true">http://moonfacex.github.io/blog/java/2016/03/31/boxing_and_unboxing.html</guid>
       </item>
     
   </channel>

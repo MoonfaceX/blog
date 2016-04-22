@@ -4,10 +4,10 @@
   <head>
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <title>Moonspace</title>
+    <title>Universal-Image-Loader 的一个bug分析</title>
     <meta name="viewport" content="width=device-width">
     <meta name="description" content="You'll never walk alone.">
-    <link rel="canonical" href="http://moonfacex.github.io/blog/">
+    <link rel="canonical" href="http://moonfacex.github.io/blog/android/2016/04/22/imager_loader_bug.html">
 
     <!-- Custom CSS -->
     <link rel="stylesheet" href="http://moonfacex.github.io/blog/css/main.css">
@@ -53,93 +53,86 @@
 
     <div class="page-content">
       <div class="wrap">
-      <div class="home">
+      <div class="post">
 
-  <h1>Posts</h1>
+  <header class="post-header">
+    <h1>Universal-Image-Loader 的一个bug分析</h1>
+    <p class="meta">Apr 22, 2016</p>
+  </header>
 
-  <ul class="posts">
-    
-      <li>
-        <span class="post-date">Apr 22, 2016</span>
-        <a class="post-link" href="http://moonfacex.github.io/blog/android/2016/04/22/imager_loader_bug.html">Universal-Image-Loader 的一个bug分析</a>
-      </li>
-    
-      <li>
-        <span class="post-date">Apr 19, 2016</span>
-        <a class="post-link" href="http://moonfacex.github.io/blog/android/2016/04/19/activity_window_viewRootImpl.html">TouchEvent从何而来 理清Activity、Window、ViewRootImpl、DecorView</a>
-      </li>
-    
-      <li>
-        <span class="post-date">Apr 11, 2016</span>
-        <a class="post-link" href="http://moonfacex.github.io/blog/java/2016/04/11/disk_lru_cache.html">okhttp中的DiskLruCache分析</a>
-      </li>
-    
-      <li>
-        <span class="post-date">Apr 8, 2016</span>
-        <a class="post-link" href="http://moonfacex.github.io/blog/android/2016/04/08/eventbus.html">EventBus 原理解析</a>
-      </li>
-    
-      <li>
-        <span class="post-date">Apr 6, 2016</span>
-        <a class="post-link" href="http://moonfacex.github.io/blog/java/2016/04/06/okhttp.html">从okhttp了解http</a>
-      </li>
-    
-      <li>
-        <span class="post-date">Apr 5, 2016</span>
-        <a class="post-link" href="http://moonfacex.github.io/blog/java/2016/04/05/reentrantreadwritelock.html">共享锁：ReentrantReadWriteLock</a>
-      </li>
-    
-      <li>
-        <span class="post-date">Apr 2, 2016</span>
-        <a class="post-link" href="http://moonfacex.github.io/blog/java/2016/04/02/reentrantlock.html">ReentrantLock的幕后黑手：AbstractQueuedSynchronizer</a>
-      </li>
-    
-      <li>
-        <span class="post-date">Apr 2, 2016</span>
-        <a class="post-link" href="http://moonfacex.github.io/blog/java/2016/04/02/atomicinteger.html">从AutomicInteger开始</a>
-      </li>
-    
-      <li>
-        <span class="post-date">Apr 1, 2016</span>
-        <a class="post-link" href="http://moonfacex.github.io/blog/android/2016/04/01/mLeft_mScrollX_translationX.html">mLeft mScrollX translationX 傻傻分不清楚</a>
-      </li>
-    
-      <li>
-        <span class="post-date">Apr 1, 2016</span>
-        <a class="post-link" href="http://moonfacex.github.io/blog/android/2016/04/01/sparsearray_and_arraymap.html">买一送一：SparseArray & ArrayMap</a>
-      </li>
-    
-      <li>
-        <span class="post-date">Mar 31, 2016</span>
-        <a class="post-link" href="http://moonfacex.github.io/blog/java/2016/03/31/boxing_and_unboxing.html">自动装箱与拆箱</a>
-      </li>
-    
-      <li>
-        <span class="post-date">Mar 31, 2016</span>
-        <a class="post-link" href="http://moonfacex.github.io/blog/java/2016/03/31/synchronized_and_monitor.html">synchronized 与 object's Monitor</a>
-      </li>
-    
-      <li>
-        <span class="post-date">Mar 31, 2016</span>
-        <a class="post-link" href="http://moonfacex.github.io/blog/java/2016/03/31/something_about_thread.html">java线程简述</a>
-      </li>
-    
-      <li>
-        <span class="post-date">Mar 30, 2016</span>
-        <a class="post-link" href="http://moonfacex.github.io/blog/java/2016/03/30/java_class_load_order.html">java类的初始化顺序</a>
-      </li>
-    
-      <li>
-        <span class="post-date">Mar 30, 2016</span>
-        <a class="post-link" href="http://moonfacex.github.io/blog/others/2016/03/30/start.html">Welcome to Moonface Space!</a>
-      </li>
-    
-  </ul>
+  <article class="post-content">
+  <p>提起<a href="https://github.com/nostra13/Android-Universal-Image-Loader">Universal-Image-Loader</a>，像我一样的这种小型开发者一定不会陌生，作为一个开源的Android的图片加载框架，它是异常的火爆，相比与glide、picasso、fresco等，受欢迎程度也相对更高一点</p>
 
-  <!-- <p class="rss-subscribe">subscribe <a href="http://moonfacex.github.io/blog/feed.xml">via RSS</a></p> -->
+<p>其实平时我使用UIL的时候，也就是无脑用displayImage(url, imageView),但直到有一天，出现了一个奇怪的现象：</p>
+
+<ul>
+  <li>
+    <p>我在listview的adapter中，在getView方法里使用displayImage来加载listItem要显示的图片</p>
+  </li>
+  <li>
+    <p>imageView先是显示loading默认图片，然后加载出真正的图片</p>
+  </li>
+  <li>
+    <p>此时！！！不去操作这个listview，仅仅是让它notifyDataSetChanged</p>
+  </li>
+  <li>
+    <p>奇怪的事情发生了</p>
+  </li>
+  <li>
+    <p>imageView闪烁了一下loading图片，再重新加载回了真实图片</p>
+  </li>
+</ul>
+
+<p>那么问题来了，这是什么鬼？
+因此就去看了一下UIL的源码，讲道理，这个框架的逻辑还是非常清晰的，并且功能也很强大，很多网上的blog也都去分析了，我在此就不具体介绍了。
+我们主要关注上述bug是如何产生的：</p>
+
+<ul>
+  <li>
+    <p>UIL有两级缓存，memCache和diskCache，要注意的是，这两个缓存的key是不一样的，这是问题的关键</p>
+  </li>
+  <li>
+    <p>memCache的key的格式是url_viewWidth*viewHeight, 而diskCache的key就是url</p>
+  </li>
+  <li>
+    <p>UIL加载图片的大致流程是：先去memCache里找，没有的话，去diskCache里找，再没有，就下载，然后resize成合适大小的bitmap，最后放入两级cache中，再提交到主线程里display</p>
+  </li>
+  <li>
+    <p>但发现没有，<font color="red">getView中，第一次将convertedView infilate进来的时候，这个itemView其实是没有进行过measure、layout操作的</font>，因此第一次生成的cacheKey的width和height其实是一个配置UIL时设置的一个默认值</p>
+  </li>
+  <li>
+    <p>那么当第二次getView的时候，itemView是量好了的，此时生成的cacheKey与第一次生成的cacheKey其实是不一样的，那么在memCache中找这个bitmap的时候，其实是找不到的，这个时候，UIL会将图片设为默认的loading图片，然后再扔到后台线程池中，去diskCache找，这就造成了会出现loading图片的状况</p>
+  </li>
+  <li>
+    <p>好在diskCache里的key是url，那么就并不用重新去网络上下载，直接从disk里读取就行了，这就是为什么真正图片马上又会显示出来的原因</p>
+  </li>
+</ul>
+
+<hr />
+
+<p>现在我们bug的问题找到了，如何去解决它呢？
+我给出的思路是：</p>
+
+<ul>
+  <li>
+    <p>在ImageAware中增加一个boolean类型的变量叫做isDefaultSize，用来表示这个view是否被测量过(如果没有经历过layout，那么此view的mLeft、mRight、mTop、mBottom都为0, 因此getWidth和getHeight返回的都是0)</p>
+  </li>
+  <li>
+    <p>在生成memCacheKey的时候就设置这个isDefaultSize</p>
+  </li>
+  <li>
+    <p>在下载完并resize完图片后，再display操作前，看看这个ImageAware的isDefaultSize，如果说false，代表已经量好了，继续display;如果为true，那就用handler.post一个runnable，里面重新做一遍displayImage(url, imageView),因为handler.post可以保证post进去的runnable肯定在view都draw完后进行，这时候view已经量好了，并且图片也存在disk中了，那么多费一点功夫，重新去disk里读一遍，虽然效率上有损失，但是保证了上述的bug不会再出现</p>
+  </li>
+</ul>
+
+<h2 id="section"><em>总结</em></h2>
+
+<p>我知道我的解决方法可能不是最好的，在有大量图片要加载的情况下，这种方法会造成第一次加载的时候速度降低，但如果在cacheKey中不考虑ImageView的大小的话，对于内存是不友好的，而measure和layout也是老生常谈的绕不过的梗，我觉得在这两者之间，我选择第一次加载慢一点，如果你有什么好的建议，欢迎发邮件给我，大家一起讨论讨论。</p>
+
+
+  </article>
 
 </div>
-
       </div>
     </div>
 
@@ -148,7 +141,7 @@
   <div class="wrap">
 	<div class="info">
       		<ul>
-			<li>转载请注明出处<a class="this-link" href="http://moonfacex.github.io/blog/index.html">http://moonfacex.github.io/blog/index.html</a></li>
+			<li>转载请注明出处<a class="this-link" href="http://moonfacex.github.io/blog/android/2016/04/22/imager_loader_bug.html">http://moonfacex.github.io/blog/android/2016/04/22/imager_loader_bug.html</a></li>
         		<li>如有疑问，可以微博私信我或者发邮件给我</li>
       		</ul>
     	</div>
